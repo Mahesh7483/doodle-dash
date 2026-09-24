@@ -153,8 +153,8 @@ test('full game: desktop host + phone guest (joins via /r/CODE), draw, guess, re
   // Live reactions: the phone sends some, they float up on the laptop.
   await guest.locator('#react-btn').click();
   await expect(guest.locator('#react-tray')).toBeVisible();
-  await guest.locator('[data-react="lol"]').click();
-  await guest.locator('[data-react="fire"]').click();
+  await guest.locator('#react-tray [data-react="lol"]').click();
+  await guest.locator('#react-tray [data-react="fire"]').click();
   await expect(host.locator('.floater')).toHaveCount(2);
   await expect(host.locator('.floater').first()).toContainText('Ben');
   await host.waitForTimeout(250);
@@ -559,7 +559,7 @@ test('party mode: a TV screen follows the game; the host removes a player', asyn
       const other = drawerPage === host ? leo : host;
       if (drawerPage === host) {
         await leo.locator('#react-btn').click();
-        await leo.locator('[data-react="fire"]').click();
+        await leo.locator('#react-tray [data-react="fire"]').click();
         await expect(tv.locator('#float-layer .floater').first()).toBeVisible();
       }
       await guess(other, 'hmm');
@@ -616,4 +616,150 @@ test('party mode: a TV screen follows the game; the host removes a player', asyn
   await expect(tv.locator('#tv-lobby')).toBeVisible();
   expect(errors).toEqual([]);
   for (const c of [deskCtx, leoCtx, trollCtx, tvCtx]) await c.close();
+});
+
+// Ink in the left and right halves of a page's game canvas.
+async function inkHalves(page) {
+  return page.evaluate(() => {
+    const d = document.querySelector('#board').getContext('2d').getImageData(0, 0, 800, 600).data;
+    let left = 0;
+    let right = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i] < 200 || d[i + 1] < 200 || d[i + 2] < 200) {
+        if ((i / 4) % 800 < 400) left++;
+        else right++;
+      }
+    }
+    return { left, right };
+  });
+}
+
+test('drawn avatars and the audience: a full room lets a 9th person watch and react', async ({ browser }) => {
+  const deskCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const guestCtx = await browser.newContext({ ...phoneDevice });
+  const fanCtx = await browser.newContext({ ...phoneDevice });
+  const host = await deskCtx.newPage();
+  const errors = [];
+  host.on('pageerror', (e) => errors.push(e.message));
+  await host.goto('/');
+  await host.locator('#name-input').fill('Maya');
+  await host.locator('#create-btn').click();
+  await expect(host.locator('#screen-lobby')).toBeVisible();
+  const code = (await host.locator('#lobby-code').textContent()) || '';
+
+  // The guest draws an avatar in the lobby.
+  const guest = await guestCtx.newPage();
+  guest.on('pageerror', (e) => errors.push(e.message));
+  await guest.goto(`/r/${code}`);
+  await guest.locator('#name-input').fill('Leo');
+  await guest.locator('#invite-join-btn').click();
+  await expect(guest.locator('.tag-draw')).toBeVisible();
+  await guest.locator('.tag-draw').click();
+  await expect(guest.locator('#avatar-dialog')).toBeVisible();
+  const pad = await guest.locator('#av-pad').boundingBox();
+  await guest.mouse.move(pad.x + pad.width * 0.3, pad.y + pad.height * 0.3);
+  await guest.mouse.down();
+  for (let i = 0; i <= 12; i++) await guest.mouse.move(pad.x + pad.width * (0.3 + i * 0.03), pad.y + pad.height * (0.3 + (i % 2) * 0.3));
+  await guest.mouse.up();
+  await guest.locator('#av-save').click();
+  await expect(guest.locator('#avatar-dialog')).toBeHidden();
+  await expect(guest.locator('.tag-draw')).toHaveCount(0);
+  const leoId = await guest.evaluate(() => window.__dd.S.view.me);
+  // Everyone sees the drawing inside Leo's avatar circle.
+  await expect
+    .poll(() => host.evaluate((id) => {
+      const el = document.querySelector(`#lobby-players .av-${id}`);
+      return el ? getComputedStyle(el).backgroundImage : '';
+    }, leoId))
+    .toContain('data:image/png');
+  expect(await guest.evaluate(() => (localStorage.getItem('dd.avatar') || '').length)).toBeGreaterThan(20);
+
+  // Fill the room: Maya + Leo + 6 bots.
+  for (let i = 0; i < 6; i++) await host.locator('#add-bot-btn').click();
+  await expect(host.locator('#lobby-count')).toHaveText('8/8');
+
+  // A 9th person is offered the audience.
+  const fan = await fanCtx.newPage();
+  fan.on('pageerror', (e) => errors.push(e.message));
+  await fan.goto(`/r/${code}`);
+  await fan.locator('#name-input').fill('Sam');
+  await fan.locator('#invite-join-btn').click();
+  await expect(fan.locator('#audience-offer')).toBeVisible();
+  await fan.locator('#audience-btn').click();
+  await expect(fan.locator('#audience-banner')).toBeVisible();
+  await expect(fan.locator('#take-seat-btn')).toBeHidden();
+  await expect(host.locator('#crowd-line')).toContainText('1 in the audience');
+  await shot(fan, 'phone-16-audience-lobby');
+
+  // During the game the audience gets blanks and a reaction bar instead of the chat box.
+  await host.locator('#start-btn').click();
+  await expect(host.locator('.choice').first()).toBeVisible();
+  await host.locator('.choice-easy').click();
+  await drawWithMouse(host);
+  await expect(fan.locator('#word-display .mask')).toBeVisible();
+  expect(await fan.evaluate(() => window.__dd.S.view.turn.word)).toBeNull();
+  await expect(fan.locator('#chat-form')).toBeHidden();
+  await expect(fan.locator('#audience-bar')).toBeVisible();
+  await expect.poll(async () => (await canvasInfo(fan)).ink, { message: 'the audience sees the drawing' }).toBeGreaterThan(1000);
+  await fan.locator('#audience-bar [data-react="fire"]').click();
+  await expect(host.locator('#float-layer .floater', { hasText: 'Sam' }).first()).toBeVisible();
+  await shot(fan, 'phone-17-audience-game');
+  expect(errors).toEqual([]);
+  for (const c of [deskCtx, guestCtx, fanCtx]) await c.close();
+});
+
+test('chaos rounds: mirror flips the drawing, one line for the bot, blindfold covers the canvas', async ({ browser }) => {
+  const { doodleWords } = require('../server/doodles');
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const host = await ctx.newPage();
+  const errors = [];
+  host.on('pageerror', (e) => errors.push(e.message));
+  await host.goto('/');
+  await host.locator('#name-input').fill('Maya');
+  await host.locator('#create-btn').click();
+  await host.locator('#add-bot-btn').click();
+  await host.locator('#set-chaos button', { hasText: 'On' }).click();
+  await host.locator('#set-rounds button', { hasText: '2' }).click();
+  await host.locator('#start-btn').click();
+
+  // Turn 1 (Maya): Mirror. Drawing on the left puts the ink on the right.
+  await expect(host.locator('.ov-choose .ov-chaos')).toContainText('Mirror');
+  await host.locator('.choice-easy').click();
+  await expect(host.locator('#chaos-chip')).toContainText('Mirror');
+  const b = await boardBox(host);
+  await host.mouse.move(b.x + b.width * 0.1, b.y + b.height * 0.3);
+  await host.mouse.down();
+  for (let i = 1; i <= 15; i++) await host.mouse.move(b.x + b.width * (0.1 + i * 0.015), b.y + b.height * (0.3 + i * 0.02), { steps: 2 });
+  await host.mouse.up();
+  const halves = await inkHalves(host);
+  expect(halves.right).toBeGreaterThan(500);
+  expect(halves.left).toBe(0);
+  await shot(host, 'desktop-17-chaos-mirror');
+  await expect(host.locator('.ov-reveal')).toBeVisible({ timeout: 45000 });
+
+  // Turn 2 (the bot): One line.
+  await expect(host.locator('#word-display .mask')).toBeVisible({ timeout: 30000 });
+  await expect(host.locator('#chaos-chip')).toContainText('One line');
+  await expect.poll(async () => (await canvasInfo(host)).ink, { timeout: 30000 }).toBeGreaterThan(4000);
+  const mask = await host.evaluate(() => window.__dd.S.view.turn.mask);
+  const fits = (w) => w.length === mask.length && [...w].every((ch, i) => mask[i] === null || mask[i] === ch);
+  for (const w of doodleWords().filter(fits)) {
+    await guess(host, w);
+    await host.waitForTimeout(400);
+    if (await host.locator('#chat-log .msg-you-correct').count()) break;
+  }
+  await expect(host.locator('.ov-reveal')).toBeVisible({ timeout: 45000 });
+  await expect(host.locator('.ov-reveal')).toContainText('Drawn with: One line');
+
+  // Turn 3 (Maya): Blindfold. The drawer's canvas is covered; the strokes still count.
+  await expect(host.locator('.ov-choose .ov-chaos')).toContainText('Blindfold', { timeout: 30000 });
+  await host.locator('.choice-easy').click();
+  await expect(host.locator('#blindfold')).toBeVisible();
+  await drawWithMouse(host);
+  expect((await canvasInfo(host)).ink).toBeGreaterThan(500);
+  await shot(host, 'desktop-18-chaos-blindfold');
+  await expect(host.locator('.ov-reveal')).toBeVisible({ timeout: 45000 });
+  await expect(host.locator('#blindfold')).toBeHidden();
+  expect(errors).toEqual([]);
+  await ctx.close();
 });

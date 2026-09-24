@@ -1356,9 +1356,20 @@ body.tv {
 }
 
 .tvg-chaos small {
+  max-height: 2.4em;
+  overflow: hidden;
   font-size: 0.85rem;
   color: #57526b;
   font-weight: 600;
+  /* After a few seconds only the twist's name stays, so the chip covers less of the drawing. */
+  animation: tv-chaos-fold 0.5s ease 6s forwards;
+}
+
+@keyframes tv-chaos-fold {
+  to {
+    max-height: 0;
+    opacity: 0;
+  }
 }
 
 .tvo-chaos {

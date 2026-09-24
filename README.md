@@ -15,6 +15,12 @@ creating the room to the gallery.
 
 **What makes it different**
 
+- **Chaos rounds.** Turn them on and every turn gets a random twist that everyone sees:
+  **One line** (the whole drawing is a single stroke), **Blindfold** (the drawer can't see
+  their own canvas), **Mirror** (it all comes out flipped), **Tiny brush**, **No take-backs**
+  or **Ink only**. The server enforces the rules, and even the bots play along.
+- **Draw your own avatar.** Doodle a face in the lobby and it follows you everywhere: the
+  scoreboard, the TV, the podium, the gallery. It's saved for your next game.
 - **Built for phones first.** Full-width canvas, big tap targets, a toolbar that fits one hand,
   and chat that keeps the drawing in view while you type. It works on laptops too, with a
   three-column layout.
@@ -23,6 +29,9 @@ creating the room to the gallery.
   shows the QR code and who's in, then the drawing, the blanks, the timer, the scores and every
   guess, and at the end the podium and a looping slideshow of the gallery. Everyone plays on
   their own phone. The TV sees exactly what a guesser sees, so it never shows the word early.
+- **Room for a crowd.** Rooms seat 8 players. Anyone else who scans the QR code joins the
+  **audience** (up to 50): they watch live, send reactions and vote for the best drawing, and
+  can take a seat when one frees up. Great for classrooms and parties.
 - **Try it alone in seconds.** Tap **Add a bot** in the lobby. Bots draw hand-drawn doodles
   stroke by stroke, guess your drawing once there's something on the canvas, and chat a little.
 - **Live reactions.** Tap a sticker (😂 🔥 ❤️ 😮 🤔 ⭐, drawn in the game's own style) and it
@@ -44,6 +53,8 @@ creating the room to the gallery.
 
 ![Party mode on a TV: scores on the left, the drawing in the middle, guesses and the join QR code on the right](docs/tv.jpg)
 
+![A chaos round on the TV: the bot draws a mirrored tree, and Maya's hand-drawn avatar is on the scoreboard](docs/tv-chaos.jpg)
+
 ![The TV podium with awards: Lightning fingers, Picasso, Early bird, Abstract artist and Crowd favourite](docs/tv-podium.jpg)
 
 ---
@@ -55,7 +66,10 @@ creating the room to the gallery.
 2. **Lobby.** The host sets rounds (2–5, default 3), draw time (60 / 80 / 100 s, default 80) and a
    word pack (Everyday, Animals, Food, Places, Actions, Mixed, or Custom words). Start needs at
    least 2 players. Playing alone? The host can add bots, and they draw and guess too. The
-   host can also remove a player who joined by mistake (they can't rejoin that room).
+   host can also remove a player who joined by mistake (they can't rejoin that room), and turn
+   on **Chaos rounds** (below). Tap your face in the list to **draw your own avatar**.
+   If the room is full, newcomers can join the **audience**: they watch, react and vote, but
+   don't play.
 3. **Each turn.** Every player draws once per round.
    - The drawer picks 1 of 3 words (one easy, one medium, one hard) within 15 s, or gets a
      random one.
@@ -67,6 +81,10 @@ creating the room to the gallery.
    - The turn ends when the timer runs out or everyone has guessed. The word and the points
      are then shown for 5 s.
    - Anyone can tap the smiley next to the chat to send a sticker reaction.
+   - **Chaos rounds** (off by default): each turn gets a random twist, shown to everyone while
+     the word is picked and on the canvas while drawing. One line, Blindfold, Mirror, Tiny
+     brush, No take-backs (no undo, eraser or clearing) or Ink only. Never the same twice in a
+     row. Scoring doesn't change.
 4. **Scoring.**
    - Guesser: `round((100 + 200 × timeLeft / drawTime) × mult)`, so 100 to 300 base points,
      and faster guesses score more.
@@ -110,11 +128,23 @@ The first time you run the browser tests on your own machine you may need
 
 | Suite | What it checks |
 | --- | --- |
-| `test/game.test.js` | scoring and multipliers, hint schedule and the half-letters cap, guess matching and "so close", turns and rounds, early end when all guess, reconnect within 60 s, host migration, drawer disconnect, joining mid-game, room full, word packs, custom words, reactions, awards, likes, TV screens (guesser view, public chat only, no seat) and removing a player |
-| `test/leak.test.js` | plays 25 randomized games (half of them with a bot, all with a TV watching) and checks that no payload sent to a guesser or the TV, including chat restored after a refresh, contains the word (or the drawer's choices) before they guess it or the reveal |
+| `test/game.test.js` | scoring and multipliers, hint schedule and the half-letters cap, guess matching and "so close", turns and rounds, early end when all guess, reconnect within 60 s, host migration, drawer disconnect, joining mid-game, room full, word packs, custom words, reactions, awards, likes, TV screens (guesser view, public chat only, no seat), removing a player, drawn avatars (validation, lobby only), chaos rounds (every rule enforced, bots following each twist) and the audience (view, reactions, votes, seats, limits) |
+| `test/leak.test.js` | plays 25 randomized games (half with a bot, a third with chaos rounds, all with a TV and an audience member watching) and checks that no payload sent to a guesser, the TV or the audience, including chat restored after a refresh, contains the word (or the drawer's choices) before they guess it or the reveal |
 | `test/bots.test.js` | adding and removing bots, bots never hosting, a solo game against a bot played to the end (the bot draws its whole doodle and guesses only after there's ink), bots never leaking the word, every doodle is valid drawing data |
-| `test/integration.test.js` | starts the real server with short timers, plays a full 3-player game over Socket.IO to the end with a TV socket watching, checks every score against the formula, repeats the leak check on what each socket (and the TV) received, and removes a player over sockets |
-| `e2e/game.spec.js` | desktop host + iPhone-size guest: create, join by link and by code, draw with mouse and touch, check the pixels appear on the other screen, refresh mid-turn as guesser and as drawer, guess, reactions, podium, gallery replay and likes, Save PNG, play again; a phone playing a whole game alone against a bot; and party mode: a 1080p TV follows a 3-player game (blanks only, the drawing, reactions, podium, slideshow) while the host removes a player |
+| `test/integration.test.js` | starts the real server with short timers, plays a full 3-player game over Socket.IO to the end with a TV socket watching, checks every score against the formula, repeats the leak check on what each socket (and the TV) received, removes a player, and has a 9th person join the audience, react and then take a free seat |
+| `e2e/game.spec.js` | desktop host + iPhone-size guest: create, join by link and by code, draw with mouse and touch, check the pixels appear on the other screen, refresh mid-turn as guesser and as drawer, guess, reactions, podium, gallery replay and likes, Save PNG, play again; a phone playing a whole game alone against a bot; and party mode: a 1080p TV follows a 3-player game (blanks only, the drawing, reactions, podium, slideshow) while the host removes a player; a drawn avatar showing on another screen and a 9th person reacting from the audience; and chaos rounds (a mirrored stroke lands on the other side, the bot's one-line turn, the blindfold cover) |
+
+### Load test
+
+```bash
+npm run loadtest                           # 40 rooms × (4 players + 2 audience), 30 s
+ROOMS=120 AUDIENCE=5 SECONDS=60 npm run loadtest
+```
+
+It starts the real server and plays every room at once over Socket.IO: drawers stream strokes
+in 40 ms chunks like a finger on a phone, guessers guess, the audience reacts. On one laptop
+core, **120 rooms with 1,080 connected players and audience** (about 26,000 messages a second)
+ran at 62 % CPU and 142 MB of memory, with chat answered in 1.2 ms (p50) and 8 ms (p95).
 
 ---
 
@@ -161,19 +191,21 @@ Every push to the `main` branch redeploys automatically.
 - **Client** (`public/`): plain HTML, CSS and JavaScript with no build step. `canvas.js` draws on
   a fixed 800×600 canvas scaled to fit, so every screen shows the same picture; strokes are
   streamed to the other players in 40 ms chunks. `app.js` handles screens, chat and the gallery,
-  `stickers.js` has the reaction stickers and award icons, and `sound.js` makes the sound
-  effects in the browser (with a mute button that remembers your choice).
+  `stickers.js` has the reaction stickers, award icons and chaos twists, `avatar.js` draws and
+  edits avatars, and `sound.js` makes the sound effects in the browser (with a mute button that
+  remembers your choice).
 - **TV screen** (`public/tv.html`, `tv.js`, `tv.css`): a separate page for big screens. It joins
   a room as a *watcher*: the server sends it what a guesser sees plus the public chat, and it
   holds no seat, so it can't guess, draw or be the host.
 - **Settings for testing**: `PORT` (default 3000), and `DD_DRAW_MS`, `DD_CHOOSE_MS`,
   `DD_REVEAL_MS`, `DD_DRAWER_GRACE_MS`, `DD_HOST_GRACE_MS`, `DD_SEAT_HOLD_MS` to shorten the
-  timers.
+  timers. `DD_CHAOS=mirror,blind,...` fixes the order of chaos twists.
 
 ```
 server/   index.js (HTTP + sockets), game.js (game logic, bots), words.js (word packs), doodles.js (bot drawings)
-public/   index.html, app.js, canvas.js, stickers.js, sound.js, ui.js, style.css, fonts/, icons
+public/   index.html, app.js, canvas.js, avatar.js, stickers.js, sound.js, ui.js, style.css, fonts/, icons
           tv.html, tv.js, tv.css (the TV screen)
+scripts/  loadtest.js
 test/     node:test unit, leak and integration tests
 e2e/      Playwright browser test
 ```

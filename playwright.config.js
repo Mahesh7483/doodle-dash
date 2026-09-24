@@ -29,6 +29,8 @@ module.exports = defineConfig({
       DD_DRAW_MS: '30000',
       DD_CHOOSE_MS: '15000',
       DD_REVEAL_MS: '1500',
+      // Chaos rounds only apply when a host turns them on; this fixes their order for the test.
+      DD_CHAOS: 'mirror,oneline,blind',
     },
   },
 });
