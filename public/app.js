@@ -89,7 +89,15 @@ function lockToken(t, waitMs) {
 async function claimToken() {
   const fromTab = ss.get('dd.token');
   const durable = ls.get('dd.token');
-  let t = fromTab && TOKEN_RE.test(fromTab) ? fromTab : durable && TOKEN_RE.test(durable) ? durable : newToken();
+  if (fromTab && TOKEN_RE.test(fromTab)) {
+    // This tab's own identity from before a reload. Use it straight away: while reloading,
+    // some browsers still hold the old page's lock for a moment. Take the lock in the
+    // background so other tabs won't adopt this token.
+    lockToken(fromTab, 10000);
+    if (!durable || !TOKEN_RE.test(durable)) ls.set('dd.token', fromTab);
+    return fromTab;
+  }
+  let t = durable && TOKEN_RE.test(durable) ? durable : newToken();
   if (!(await lockToken(t, 600))) {
     t = newToken();
     await lockToken(t, 50);
@@ -176,7 +184,13 @@ socket.io.on('reconnect_attempt', () => {
 });
 
 socket.on('state', onState);
-socket.on('chat', onChat);
+socket.on('chat', (m) => renderChat(m, true));
+socket.on('chatHistory', ({ messages }) => {
+  chatLog.innerHTML = '';
+  for (const m of messages || []) renderChat(m, false);
+  chatLog.scrollTop = chatLog.scrollHeight;
+  chatPinned = true;
+});
 socket.on('draw', (op) => board.apply(op));
 socket.on('drawSync', ({ turnId, ops }) => {
   if (S.view && S.view.turn && S.view.turn.id === turnId) board.setOps(ops);
@@ -369,8 +383,7 @@ function onState(v) {
   const key = `${v.phase}:${turn ? turn.id : ''}`;
   if (key !== S.phaseKey) {
     S.phaseKey = key;
-    S.phaseTotal = Math.max(1, v.endsAt - v.serverNow);
-    if (v.phase === 'drawing' && turn) S.phaseTotal = turn.drawTimeMs;
+    S.phaseTotal = v.phaseMs || Math.max(1, v.endsAt - v.serverNow);
     S.lastSecond = null;
     onPhaseChange(prev, v);
   }
@@ -382,12 +395,13 @@ function onState(v) {
 
 function onPhaseChange(prev, v) {
   const turn = v.turn;
+  const live = !!prev; // false right after a refresh/rejoin: no fanfare for things that already happened
   const newTurn = turn && (!prev || !prev.turn || prev.turn.id !== turn.id);
   if (newTurn) {
     board.reset();
     S.inkWarned = false;
   }
-  if (v.phase === 'choosing' && turn && turn.drawerId === v.me && newTurn) {
+  if (live && v.phase === 'choosing' && turn && turn.drawerId === v.me && newTurn) {
     sfx.yourTurn();
     vibrate(60);
   }
@@ -910,7 +924,8 @@ new ResizeObserver(() => {
   if (chatPinned) chatLog.scrollTop = chatLog.scrollHeight;
 }).observe(chatLog);
 
-function onChat(m) {
+// live = arrived just now (plays sounds); false when restoring history after a refresh.
+function renderChat(m, live) {
   const log = chatLog;
   const atBottom = chatPinned;
   const li = document.createElement('li');
@@ -925,16 +940,18 @@ function onChat(m) {
       break;
     case 'close':
       li.innerHTML = `${who}<span class="msg-text">${esc(m.text)}</span><span class="close-tag">So close!</span>`;
-      sfx.close();
+      if (live) sfx.close();
       break;
     case 'you-correct':
       li.innerHTML = `<svg class="icon icon-sm"><use href="#i-check"/></svg><span>You guessed it! <b>${esc(m.text)}</b> · +${m.points}</span>`;
-      sfx.correct();
-      vibrate([30, 40, 30]);
+      if (live) {
+        sfx.correct();
+        vibrate([30, 40, 30]);
+      }
       break;
     case 'correct':
       li.innerHTML = `<svg class="icon icon-sm"><use href="#i-check"/></svg><span>${esc(m.text)}</span>`;
-      sfx.pop();
+      if (live) sfx.pop();
       break;
     default:
       li.innerHTML = `<span>${esc(m.text)}</span>`;

@@ -53,10 +53,10 @@ async function drawWithMouse(page) {
 }
 
 // Real touch events (pointerType "touch") through the Chrome DevTools protocol.
-async function drawWithTouch(page, context) {
+async function drawWithTouch(page, context, dy = 0) {
   const cdp = await context.newCDPSession(page);
   const b = await boardBox(page);
-  const pt = (fx, fy) => [{ x: b.x + b.width * fx, y: b.y + b.height * fy, id: 1 }];
+  const pt = (fx, fy) => [{ x: b.x + b.width * fx, y: b.y + b.height * (fy + dy), id: 1 }];
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt(0.2, 0.5) });
   for (let i = 1; i <= 20; i++) {
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: pt(0.2 + i * 0.03, 0.5) });
@@ -164,6 +164,7 @@ test('full game: desktop host + phone guest (joins via /r/CODE), draw, guess, re
   expect(isInk((await canvasInfo(guest, 400, 300)).pixel)).toBe(true);
   await expect(host.locator('#player-list .pl')).toHaveCount(2);
   await expect(guest.locator('#player-list .pl.me')).toContainText('Ben');
+  await expect(guest.locator('#chat-log')).toContainText('Ana is choosing a word'); // chat restored
 
   await guess(guest, 'definitely not it');
   await expect(guest.locator('#chat-log')).toContainText('definitely not it');
@@ -192,6 +193,19 @@ test('full game: desktop host + phone guest (joins via /r/CODE), draw, guess, re
   expect(isInk((await canvasInfo(host, 400, 300)).pixel)).toBe(true);
   await shot(guest, 'phone-09-drawing');
   await shot(host, 'desktop-09-guessing');
+
+  // ---- The drawer refreshes mid-turn: same drawing, same tools, correct timer, keeps drawing.
+  await guest.reload();
+  await expect(guest.locator('#toolbar')).toBeVisible();
+  await expect.poll(async () => (await canvasInfo(guest)).ink).toBeGreaterThan(1500);
+  expect(isInk((await canvasInfo(guest, 400, 300)).pixel)).toBe(true);
+  expect(await guest.evaluate(() => window.__dd.S.phaseTotal)).toBe(30000);
+  await expect(guest.locator('#word-display')).toHaveText(word2, { ignoreCase: true });
+  expect(isInk((await canvasInfo(host, 400, 480)).pixel)).toBe(false);
+  await drawWithTouch(guest, phone, 0.3); // a new line at y = 0.8 -> internal y 480
+  await expect
+    .poll(async () => isInk((await canvasInfo(host, 400, 480)).pixel), { message: 'new stroke after the drawer refreshed' })
+    .toBe(true);
   // Undo on the phone removes the last stroke everywhere.
   const before = (await canvasInfo(host)).ink;
   await guest.locator('#undo-btn').click();

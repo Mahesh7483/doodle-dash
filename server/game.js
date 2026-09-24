@@ -21,6 +21,7 @@ const MAX_POINTS_PER_MSG = 300;
 const CHAT_MAX_LEN = 100;
 const CHAT_PER_SEC = 3;
 const DRAW_MSGS_PER_SEC = 80;
+const CHAT_HISTORY = 60; // messages kept per player and replayed after a refresh
 
 const DEFAULT_TIMING = {
   chooseMs: 15000,
@@ -169,6 +170,7 @@ class Room {
     this.turnId = 0;
     this.turn = null;
     this.endsAt = 0;
+    this.phaseMs = 0;
     this.gallery = [];
     this.usedWords = new Set();
     this.notice = null;
@@ -231,6 +233,7 @@ class Room {
       disconnectedAt: null,
       guessed: false,
       isNew: true,
+      history: [],
       chatTimes: [],
       drawTimes: [],
     };
@@ -248,6 +251,9 @@ class Room {
     if (p.isNew) {
       p.isNew = false;
       this.system(`${p.name} joined`, 'join');
+    } else {
+      // Coming back (refresh, phone lock): restore the chat, including what they missed.
+      this.send(pid, 'chatHistory', { messages: p.history });
     }
     this.broadcastState();
     this.sendSync(pid);
@@ -457,6 +463,7 @@ class Room {
       reason: null,
     };
     this.phase = 'choosing';
+    this.phaseMs = this.timing.chooseMs;
     this.endsAt = now + this.timing.chooseMs;
     this.system(`${drawer.name} is choosing a word`, 'turn');
     this.broadcastState();
@@ -481,6 +488,7 @@ class Room {
     t.hintTimes = [now + this.drawMs() * 0.5, now + this.drawMs() * 0.75];
     this.usedWords.add(choice.word);
     this.phase = 'drawing';
+    this.phaseMs = this.drawMs();
     this.endsAt = t.drawEndsAt;
     this.broadcastState();
   }
@@ -530,6 +538,7 @@ class Room {
       }
     }
     this.phase = 'reveal';
+    this.phaseMs = this.timing.revealMs;
     this.endsAt = this.now() + this.timing.revealMs;
     // State first, so every client is in the reveal phase before the word shows up in chat.
     this.broadcastState();
@@ -573,7 +582,7 @@ class Room {
     if (inTurn && (t.drawerId === pid || p.guessed)) {
       // Private channel: drawer + players who already guessed.
       for (const q of this.players) {
-        if (q.connected && (q.id === t.drawerId || q.guessed)) this.sendChat(q.id, { ...msg, kind: 'private' });
+        if (q.id === t.drawerId || q.guessed) this.sendChat(q.id, { ...msg, kind: 'private' });
       }
       return { ok: true };
     }
@@ -594,7 +603,7 @@ class Room {
         return { ok: true };
       }
     }
-    for (const q of this.connected()) this.sendChat(q.id, { ...msg, kind: 'chat' });
+    for (const q of this.players) this.sendChat(q.id, { ...msg, kind: 'chat' });
     return { ok: true };
   }
 
@@ -613,18 +622,25 @@ class Room {
       t.points[drawer.id] = (t.points[drawer.id] || 0) + dp;
     }
     this.sendChat(p.id, { kind: 'you-correct', text: t.word, points: pts, from: p.id, name: p.name, color: p.color });
-    for (const q of this.connected()) {
+    for (const q of this.players) {
       if (q.id !== p.id) this.sendChat(q.id, { kind: 'correct', from: p.id, name: p.name, color: p.color, text: `${p.name} guessed it!` });
     }
     if (!this.checkAllGuessed()) this.broadcastState();
   }
 
+  // Every chat line is kept in the recipient's history (even while they're away) and sent
+  // live if they're connected.
   sendChat(pid, msg) {
-    this.send(pid, 'chat', { id: ++this.msgSeq, ...msg });
+    const m = { id: ++this.msgSeq, ...msg };
+    const p = this.get(pid);
+    if (!p) return;
+    p.history.push(m);
+    if (p.history.length > CHAT_HISTORY) p.history.splice(0, p.history.length - CHAT_HISTORY);
+    if (p.connected) this.send(pid, 'chat', m);
   }
 
   system(text, kind = 'system') {
-    for (const q of this.connected()) this.sendChat(q.id, { kind: 'system', sub: kind, text });
+    for (const q of this.players) this.sendChat(q.id, { kind: 'system', sub: kind, text });
   }
 
   // ---- drawing
@@ -752,6 +768,7 @@ class Room {
         guessed: p.guessed,
       })),
       endsAt: this.endsAt,
+      phaseMs: this.endsAt ? this.phaseMs : 0,
       serverNow: this.now(),
       notice: this.notice,
       turn: null,

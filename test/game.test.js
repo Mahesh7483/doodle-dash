@@ -296,6 +296,40 @@ test('reconnect within 60 s keeps the seat and score', () => {
   assert.equal(again.player.name, 'Player 1');
 });
 
+test('rejoining restores the chat, including messages missed while away', () => {
+  const env = setup({ players: 3 });
+  const { room, ids } = env;
+  room.chat(ids[0], 'hello before');
+  room.disconnect(ids[2]);
+  room.chat(ids[1], 'said while you were away');
+  env.sent.length = 0;
+  room.connect(ids[2]);
+  const hist = env.sent.find((m) => m.pid === ids[2] && m.event === 'chatHistory');
+  assert.ok(hist, 'history sent on rejoin');
+  const texts = hist.data.messages.map((m) => m.text);
+  assert.ok(texts.includes('hello before'));
+  assert.ok(texts.includes('said while you were away'));
+  assert.ok(!env.sent.some((m) => m.pid === ids[2] && m.event === 'chat' && m.data.text === 'said while you were away'), 'not re-sent live');
+  // New players don't get anyone else's history.
+  const late = env.join('token-late-hist', 'Late');
+  assert.ok(!env.sent.some((m) => m.pid === late.id && m.event === 'chatHistory'));
+});
+
+test('the view carries the full length of the current phase (timer ring after a refresh)', () => {
+  const env = setup({ players: 2 });
+  const { room, ids } = env;
+  assert.equal(env.lastState(ids[1]).phaseMs, 0);
+  room.start(ids[0]);
+  assert.equal(env.lastState(ids[1]).phaseMs, 15000);
+  chooseDifficulty(env, 'easy');
+  env.advance(30000);
+  room.disconnect(ids[1]);
+  room.connect(ids[1]);
+  const st = env.lastState(ids[1]);
+  assert.equal(st.phaseMs, 80000);
+  assert.equal(st.endsAt - st.serverNow, 50000);
+});
+
 test('a seat is removed after 60 s disconnected', () => {
   const env = setup({ players: 3 });
   const { room, ids, manager } = env;

@@ -53,12 +53,16 @@ function playAndCheck(seed) {
       const m = sent[i];
       if (!m.inTurn) continue;
       if (m.pid === m.drawerId) continue;
+      // A chat history (sent on rejoin) is checked message by message with the chat rules.
+      const items = m.event === 'chatHistory' ? m.data.messages.map((data) => ({ event: 'chat', data })) : [m];
       for (const w of m.secret) {
         if (m.guessedBefore) continue;
-        if (m.event === 'chat' && m.data.kind === 'you-correct') continue; // they just typed it
-        if (m.event === 'chat' && m.data.from === m.pid) continue; // their own message echoed back
-        assert.ok(!wordIn(m.data, w), `seed ${seed}: "${w}" leaked to ${m.pid} in ${m.event}: ${JSON.stringify(m.data)}`);
-        checked++;
+        for (const it of items) {
+          if (it.event === 'chat' && it.data.kind === 'you-correct') continue; // they just typed it
+          if (it.event === 'chat' && it.data.from === m.pid) continue; // their own message echoed back
+          assert.ok(!wordIn(it.data, w), `seed ${seed}: "${w}" leaked to ${m.pid} in ${m.event}: ${JSON.stringify(it.data)}`);
+          checked++;
+        }
       }
     }
     return words;
