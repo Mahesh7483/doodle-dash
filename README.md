@@ -4,6 +4,11 @@
 friends, each on their own device. Open the link, type a name, share the 4-letter room code or QR,
 and play. No logins, no installs, no ads.
 
+### ▶ Play now: **<https://doodle-dash-stv7.onrender.com>**
+
+(It runs on Render's free plan: if nobody has played for 15 minutes, the first visit takes
+about 30–50 seconds while the server wakes up.)
+
 ![Doodle Dash on phones: lobby with QR code, drawing, guessing in dark mode, and the end-of-game gallery](docs/hero.jpg)
 
 **What makes it different**
