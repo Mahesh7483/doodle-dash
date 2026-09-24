@@ -1,6 +1,148 @@
 # Doodle Dash
 
-A phone-first multiplayer drawing-and-guessing party game for 2–8 players. Join with a room code,
-no logins, no installs.
+**Draw it. Guess it. Laugh about it.** A phone-first drawing-and-guessing party game for 2–8
+friends, each on their own device. Open the link, type a name, share the 4-letter room code or QR,
+and play. No logins, no installs, no ads.
 
-See [SPEC.md](SPEC.md) for the approved design. Build in progress.
+![Doodle Dash on phones: lobby with QR code, drawing, guessing in dark mode, and the end-of-game gallery](docs/hero.jpg)
+
+**What makes it different**
+
+- **Built for phones first.** Full-width canvas, big tap targets, a toolbar that fits one hand,
+  and chat that keeps the drawing in view while you type. It works on laptops too, with a
+  three-column layout.
+- **One-tap join.** Friends scan the QR code or open the `/r/ABCD` link and they're in.
+- **Risk vs. reward.** The drawer picks an easy (×1), medium (×1.5) or hard (×2) word. Harder
+  words pay more for everyone.
+- **The Gallery.** At the end, every drawing replays stroke by stroke with its word and artist.
+  Tap one to see it big, or save it as a captioned PNG to share.
+- **Fair play.** The server owns the timer, the word and the scores. Guessers' browsers never
+  receive the word before the reveal, and players who already guessed chat in a private
+  channel so they can't spoil it.
+- **Forgiving.** Refresh, lock your phone or lose signal and you have 60 seconds to come back
+  to the same seat with the same score.
+
+![Desktop layout: players, canvas and chat](docs/desktop.jpg)
+
+---
+
+## How to play
+
+1. **Join.** Enter a name, then create a room or type a 4-letter code. The host can show a QR
+   code or share a link (`/r/ABCD`) so others join in one tap. 2–8 players.
+2. **Lobby.** The host sets rounds (2–5, default 3), draw time (60 / 80 / 100 s, default 80) and a
+   word pack (Everyday, Animals, Food, Places, Actions, Mixed, or Custom words). Start needs at
+   least 2 players.
+3. **Each turn.** Every player draws once per round.
+   - The drawer picks 1 of 3 words (one easy, one medium, one hard) within 15 s, or gets a
+     random one.
+   - Guessers see only blanks `_ _ _ _ _` (spaces and hyphens are shown). One letter is revealed
+     at 50 % of the draw time and another at 75 %, never more than half the letters.
+   - Guessers type guesses in chat. A correct guess shows "**Ana guessed it!**" to everyone; the
+     word itself is never shown. A guess one letter off gets a private "**So close!**".
+   - Players who already guessed (and the drawer) chat in a private channel only they can see.
+   - The turn ends when the timer runs out or everyone has guessed. The word and the points
+     are then shown for 5 s.
+4. **Scoring.**
+   - Guesser: `round((100 + 200 × timeLeft / drawTime) × mult)`, so 100 to 300 base points,
+     and faster guesses score more.
+   - Drawer: `50 × (number of correct guessers) × mult`. If nobody guesses, the drawer scores 0.
+   - `mult` is the difficulty multiplier: easy ×1, medium ×1.5, hard ×2.
+5. **End.** A podium for the top 3, then the Gallery. **Play again** takes everyone back to the
+   lobby in the same room with scores reset.
+
+The same rules are in the game under **How to play** (on the home screen and in the lobby).
+
+---
+
+## Run it on your computer
+
+You need [Node.js](https://nodejs.org/) 20 or newer.
+
+```bash
+git clone https://github.com/Mahesh7483/doodle-dash.git
+cd doodle-dash
+npm install
+npm start
+```
+
+Open <http://localhost:3000>. To test with a phone, connect it to the same Wi-Fi and open
+`http://YOUR-COMPUTER-IP:3000` (for example `http://192.168.1.20:3000`). You can also open a
+second browser tab: each tab gets its own player.
+
+### Tests
+
+```bash
+npm test            # unit tests, the word-leak test and a scripted 3-player socket game
+npm run test:e2e    # browser test: a desktop and a phone play a full game (Playwright)
+```
+
+The first time you run the browser tests on your own machine you may need
+`npx playwright install chromium`.
+
+| Suite | What it checks |
+| --- | --- |
+| `test/game.test.js` | scoring and multipliers, hint schedule and the half-letters cap, guess matching and "so close", turns and rounds, early end when all guess, reconnect within 60 s, host migration, drawer disconnect, joining mid-game, room full, word packs, custom words |
+| `test/leak.test.js` | plays 25 randomized games and checks that no payload sent to a guesser contains the word (or the drawer's choices) before they guess it or the reveal |
+| `test/integration.test.js` | starts the real server with short timers, plays a full 3-player game over Socket.IO to the end, checks every score against the formula, and repeats the leak check on what each socket received |
+| `e2e/game.spec.js` | desktop host + iPhone-size guest: create, join by link and by code, draw with mouse and touch, check the pixels appear on the other screen, refresh mid-turn, guess, podium, gallery replay, Save PNG, play again |
+
+---
+
+## Put it online with Render (free)
+
+Render runs the game on a public URL for free. You only need a GitHub account.
+
+1. Go to **<https://render.com>** and click **Get Started**. Choose **Sign in with GitHub** and
+   allow Render to see your repositories (you can allow just `doodle-dash`).
+2. In the Render dashboard, click **New** (top right), then **Blueprint**.
+3. Pick the **Mahesh7483/doodle-dash** repository and click **Connect**. If it asks for a
+   Blueprint name, type anything (for example `doodle-dash`).
+   Render reads the `render.yaml` file in this repo, so the settings are already filled in:
+   a free Node web service that runs `npm ci` to build and `npm start` to run, with a health
+   check at `/healthz`.
+4. Click **Deploy Blueprint** (or **Apply**). The first build takes about 2–3 minutes.
+5. When the status turns **Live**, open the service. Your link is at the top of the page, like
+   `https://doodle-dash.onrender.com` (Render may add a few extra letters if that name is taken).
+   That's the link to share.
+
+**Alternative (no Blueprint):** click **New**, then **Web Service**, pick the repo, and set:
+Language **Node**, Build Command `npm ci`, Start Command `npm start`, Instance Type **Free**.
+Under **Advanced**, set Health Check Path to `/healthz`. Then click **Create Web Service**.
+
+Every push to the `main` branch redeploys automatically.
+
+**Good to know about the free plan**
+
+- The free service **goes to sleep after 15 minutes with no visitors**. The next visit wakes it
+  up, which takes about **30–50 seconds**. Open the link a minute before you play.
+- Rooms live in memory, so a sleep, restart or redeploy clears any open rooms. That's fine for a
+  party game: just create a new room.
+
+---
+
+## How it works
+
+- **Server** (`server/`): Node + Express + Socket.IO 4. `game.js` is the whole game as pure logic
+  with an injectable clock (rooms, turns, timers, scoring, hints, reconnects, host migration),
+  which is why it's easy to test. `index.js` wires it to HTTP and sockets and serves the QR code
+  at `/qr/ABCD.svg` (rendered on the server with the `qrcode` package). `words.js` has 5 packs of
+  90 words each.
+- **Client** (`public/`): plain HTML, CSS and JavaScript with no build step. `canvas.js` draws on
+  a fixed 800×600 canvas scaled to fit, so every screen shows the same picture; strokes are
+  streamed to the other players in 40 ms chunks. `app.js` handles screens, chat and the gallery,
+  and `sound.js` makes the sound effects in the browser (with a mute button that remembers
+  your choice).
+- **Settings for testing**: `PORT` (default 3000), and `DD_DRAW_MS`, `DD_CHOOSE_MS`,
+  `DD_REVEAL_MS`, `DD_DRAWER_GRACE_MS`, `DD_HOST_GRACE_MS`, `DD_SEAT_HOLD_MS` to shorten the
+  timers.
+
+```
+server/   index.js (HTTP + sockets), game.js (game logic), words.js (word packs)
+public/   index.html, app.js, canvas.js, sound.js, style.css, fonts/, icons
+test/     node:test unit, leak and integration tests
+e2e/      Playwright browser test
+```
+
+The approved design is in [SPEC.md](SPEC.md). Font: [Fredoka](https://github.com/hafontia/Fredoka-One)
+(SIL Open Font License, bundled in `public/fonts`).

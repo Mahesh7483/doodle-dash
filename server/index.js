@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const express = require('express');
@@ -82,10 +83,23 @@ function createServer(options = {}) {
     }
   });
 
+  // index.html with an absolute link-preview image (chat apps ignore relative ones) and,
+  // for invite links, a preview title naming the room.
+  const indexHtml = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'), 'utf8');
   const sendIndex = (req, res) => {
-    res.set('Cache-Control', 'no-cache');
-    res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+    const host = /^[A-Za-z0-9.:-]+$/.test(req.get('host') || '') ? req.get('host') : 'localhost';
+    let html = indexHtml.replace('content="/og.png"', `content="${req.protocol}://${host}/og.png"`);
+    const code = req.params.code ? normalizeCode(req.params.code) : '';
+    if (validCode(code)) {
+      html = html.replace(
+        '<meta property="og:title" content="Doodle Dash — draw, guess, laugh">',
+        `<meta property="og:title" content="Join my Doodle Dash room ${code}!">`
+      );
+    }
+    res.set('Cache-Control', 'no-cache').type('html').send(html);
   };
+  app.get('/', sendIndex);
+  app.get('/index.html', sendIndex);
   app.get('/r/:code', sendIndex);
 
   app.use(
@@ -107,6 +121,7 @@ function createServer(options = {}) {
     socket.data.pid = null;
     socket.data.code = null;
     let createTimes = [];
+    let joinTimes = [];
 
     const reply = (ack, payload) => {
       if (typeof ack === 'function') ack(payload);
@@ -160,6 +175,11 @@ function createServer(options = {}) {
     });
 
     socket.on('room:join', (data, ack) => {
+      // Enough for typos, too slow to scan for room codes.
+      const now = Date.now();
+      joinTimes = joinTimes.filter((t) => now - t < 60000);
+      if (joinTimes.length >= 20) return reply(ack, { error: 'Too many tries — wait a minute and check the code.' });
+      joinTimes.push(now);
       const { name, token, code } = data || {};
       const res = manager.join(code, token, name);
       if (res.error) return reply(ack, { error: res.error });

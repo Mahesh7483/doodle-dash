@@ -269,10 +269,12 @@ test('HTTP: health check, QR code, invite links, static files', { timeout: 20000
   assert.match(qr.headers.get('content-type'), /image\/svg\+xml/);
   assert.match(await qr.text(), /<svg/);
   assert.equal((await fetch(`${url}/qr/AB1.svg`)).status, 404);
-  const invite = await fetch(`${url}/r/ABCD`);
+  const invite = await fetch(`${url}/r/abcd`);
   assert.equal(invite.status, 200);
-  assert.match(await invite.text(), /Doodle Dash/);
-  for (const f of ['/', '/app.js', '/canvas.js', '/style.css', '/sound.js', '/favicon.svg', '/socket.io/socket.io.min.js']) {
+  const html = await invite.text();
+  assert.match(html, /Join my Doodle Dash room ABCD!/);
+  assert.match(html, new RegExp(`content="${url}/og.png"`));
+  for (const f of ['/', '/og.png', '/icon-192.png', '/manifest.webmanifest', '/app.js', '/canvas.js', '/style.css', '/sound.js', '/favicon.svg', '/socket.io/socket.io.min.js']) {
     assert.equal((await fetch(url + f)).status, 200, f);
   }
 });

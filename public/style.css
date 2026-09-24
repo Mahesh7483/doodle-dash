@@ -683,6 +683,26 @@ code {
   font-weight: 600;
 }
 
+.rejoin-note {
+  display: none;
+  margin: 0;
+  font-weight: 650;
+  font-size: 1.1rem;
+  color: var(--text-2);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+body.rejoining .rejoin-note {
+  display: block;
+  order: 2;
+}
+
+body.rejoining .home-card,
+body.rejoining .how-btn,
+body.rejoining .home-foot {
+  display: none;
+}
+
 /* Invite links: get the Join button above the fold on short phones. */
 .is-invite .logo {
   font-size: clamp(2.6rem, 13vw, 3.6rem);

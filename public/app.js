@@ -57,15 +57,32 @@ function newToken() {
 function lockToken(t, waitMs) {
   if (!navigator.locks || !navigator.locks.request) return Promise.resolve(true);
   return new Promise((resolve) => {
+    let settled = false;
+    const done = (v) => {
+      if (!settled) {
+        settled = true;
+        resolve(v);
+      }
+    };
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), waitMs);
-    navigator.locks
-      .request(`dd-token-${t}`, { signal: ctrl.signal }, () => {
-        clearTimeout(timer);
-        resolve(true);
-        return new Promise(() => {}); // hold until the page goes away
-      })
-      .catch(() => resolve(false));
+    // Give up after waitMs even if this browser ignores the abort signal.
+    const timer = setTimeout(() => {
+      ctrl.abort();
+      done(false);
+    }, waitMs);
+    try {
+      navigator.locks
+        .request(`dd-token-${t}`, { signal: ctrl.signal }, () => {
+          if (settled) return undefined; // too late: release straight away
+          clearTimeout(timer);
+          done(true);
+          return new Promise(() => {}); // hold until the page goes away
+        })
+        .catch(() => done(false));
+    } catch (_) {
+      clearTimeout(timer);
+      done(true);
+    }
   });
 }
 
@@ -177,6 +194,8 @@ socket.on('replaced', () => {
   forgetRoom();
   showHome(null);
   toast('This room was opened in another tab.');
+  // The server closed this connection; open a fresh one for whatever the player does next.
+  setTimeout(() => socket.connect(), 500);
 });
 
 async function syncClock() {
@@ -226,6 +245,7 @@ function currentScreen() {
 // ---- Home
 
 function showHome(inviteCode) {
+  document.body.classList.remove('rejoining');
   S.view = null;
   S.code = null;
   board.reset();
@@ -340,6 +360,7 @@ $('#name-input').addEventListener('input', () => setHomeError(null));
 // State updates
 
 function onState(v) {
+  document.body.classList.remove('rejoining');
   const prev = S.view;
   S.view = v;
   S.code = v.code;
@@ -1334,5 +1355,9 @@ document.addEventListener('visibilitychange', () => {
 window.__dd = { board, S, drawInput };
 
 // First paint: show the home screen until the socket decides where we belong.
-if (!ss.get('dd.room') && !lastRoomFor(ls.get('dd.token'))) showHome(S.invite);
-else showScreen('home');
+if (!ss.get('dd.room') && !lastRoomFor(ls.get('dd.token'))) {
+  showHome(S.invite);
+} else {
+  document.body.classList.add('rejoining');
+  showScreen('home');
+}
