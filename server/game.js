@@ -6,6 +6,7 @@
 
 const crypto = require('crypto');
 const { PACKS, PACK_IDS, MULTIPLIERS, parseCustomWords } = require('./words');
+const { doodleOps, doodleWords, LIBRARY } = require('./doodles');
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ'; // no I, L, O
 const MAX_PLAYERS = 8;
@@ -22,6 +23,15 @@ const CHAT_MAX_LEN = 100;
 const CHAT_PER_SEC = 3;
 const DRAW_MSGS_PER_SEC = 80;
 const CHAT_HISTORY = 60; // messages kept per player and replayed after a refresh
+
+// Bots let one person try the game alone. They draw pre-made doodles and guess the human's
+// drawing a little while after there's something on the canvas.
+const BOT_NAMES = ['Doodlebot', 'Pablo Botcasso', 'Vincent van Bot', 'Frida Botlo', 'Botticelli', 'Sketchy Bot', 'Scribble Bot', 'Crayonbot'];
+const BOT_INK_POINTS = 30; // bots don't guess a blank canvas
+const BOT_GUESS_CHANCE = { easy: 0.95, medium: 0.88, hard: 0.78 };
+const BOT_THINK_EXTRA = { easy: 0, medium: 2500, hard: 5000 };
+const BOT_REACTIONS = ['nice one!', 'haha', 'gg', 'that was fun', 'wow 🎨', 'love it', 'ooh, tricky', 'again again!'];
+const BOT_STUMPED = ['no idea 😅', 'that was a tough one!', 'hmm, what was it?'];
 
 const DEFAULT_TIMING = {
   chooseMs: 15000,
@@ -192,6 +202,47 @@ class Room {
     return this.players.filter((p) => p.connected);
   }
 
+  humansConnected() {
+    return this.players.filter((p) => p.connected && !p.bot);
+  }
+
+  addBot(pid) {
+    if (pid !== this.hostId) return { error: 'Only the host can add bots.' };
+    if (this.phase !== 'lobby') return { error: 'Bots can only join in the lobby.' };
+    if (this.isFull()) return { error: 'Room is full' };
+    const taken = new Set(this.players.map((p) => p.name.toLowerCase()));
+    const name = BOT_NAMES.find((n) => !taken.has(n.toLowerCase())) || this.uniqueName('Bot');
+    const bot = {
+      id: newId(),
+      token: null,
+      name,
+      color: this.pickColor(),
+      score: 0,
+      connected: true,
+      disconnectedAt: null,
+      guessed: false,
+      isNew: false,
+      bot: true,
+      brain: null,
+      history: [],
+      chatTimes: [],
+      drawTimes: [],
+    };
+    this.players.push(bot);
+    this.system(`${name} (bot) joined`, 'join');
+    this.broadcastState();
+    return { ok: true, id: bot.id };
+  }
+
+  removeBot(pid, botId) {
+    if (pid !== this.hostId) return { error: 'Only the host can remove bots.' };
+    if (this.phase !== 'lobby') return { error: 'Bots can only leave in the lobby.' };
+    const bot = this.get(botId);
+    if (!bot || !bot.bot) return { error: 'No such bot.' };
+    this.removePlayer(botId, 'left');
+    return { ok: true };
+  }
+
   get drawer() {
     return this.turn ? this.get(this.turn.drawerId) : null;
   }
@@ -264,7 +315,7 @@ class Room {
     if (!p || !p.connected) return;
     p.connected = false;
     p.disconnectedAt = this.now();
-    if (this.connected().length === 0) this.emptySince = this.now();
+    if (this.humansConnected().length === 0) this.emptySince = this.now();
     this.checkAllGuessed();
     this.broadcastState();
   }
@@ -277,9 +328,19 @@ class Room {
     const idx = this.players.findIndex((p) => p.id === pid);
     if (idx === -1) return;
     const [p] = this.players.splice(idx, 1);
+    // Bots never play on their own: when the last person leaves, the room empties.
+    if (!p.bot && !this.players.some((q) => !q.bot)) {
+      this.players = [];
+      this.hostId = null;
+      this.phase = 'lobby';
+      this.turn = null;
+      this.endsAt = 0;
+      if (this.emptySince == null) this.emptySince = this.now();
+      return;
+    }
     this.system(why === 'timeout' ? `${p.name} disconnected` : `${p.name} left`, 'leave');
     if (this.hostId === pid) this.migrateHost();
-    if (this.connected().length === 0 && this.emptySince == null) this.emptySince = this.now();
+    if (this.humansConnected().length === 0 && this.emptySince == null) this.emptySince = this.now();
 
     if (this.phase !== 'lobby' && this.phase !== 'gameOver' && this.players.length < 2) {
       this.backToLobby('Not enough players left — back to the lobby.');
@@ -295,8 +356,8 @@ class Room {
 
   // Longest-seated connected player becomes host (seat order = join order).
   migrateHost() {
-    const next = this.players.find((p) => p.connected && p.id !== this.hostId) || null;
-    const fallback = this.players.find((p) => p.id !== this.hostId) || null;
+    const next = this.players.find((p) => p.connected && !p.bot && p.id !== this.hostId) || null;
+    const fallback = this.players.find((p) => !p.bot && p.id !== this.hostId) || null;
     const chosen = next || (this.get(this.hostId) ? null : fallback);
     if (!chosen) {
       if (!this.get(this.hostId)) this.hostId = null;
@@ -400,8 +461,15 @@ class Room {
     return w;
   }
 
-  pickChoices() {
+  pickChoices(drawer) {
     const taken = new Set();
+    if (drawer && drawer.bot) {
+      return ['easy', 'medium', 'hard'].map((difficulty) => ({
+        word: this.pickWord(doodleWords(difficulty), taken),
+        difficulty,
+        mult: MULTIPLIERS[difficulty],
+      }));
+    }
     const levels = this.settings.pack === 'custom' ? ['medium', 'medium', 'medium'] : ['easy', 'medium', 'hard'];
     return levels.map((difficulty) => ({
       word: this.pickWord(this.wordPool(difficulty), taken),
@@ -444,7 +512,8 @@ class Room {
       drawerId: drawer.id,
       drawerName: drawer.name,
       drawerColor: drawer.color,
-      choices: this.pickChoices(),
+      drawerBot: !!drawer.bot,
+      choices: this.pickChoices(drawer),
       word: null,
       difficulty: null,
       mult: 1,
@@ -490,7 +559,125 @@ class Room {
     this.phase = 'drawing';
     this.phaseMs = this.drawMs();
     this.endsAt = t.drawEndsAt;
+    this.planBots(now);
     this.broadcastState();
+  }
+
+  // ---- bots
+
+  planBots(now) {
+    const t = this.turn;
+    const drawer = this.drawer;
+    const rng = this.rng;
+    if (drawer && drawer.bot && LIBRARY[t.word]) {
+      const ops = doodleOps(t.word);
+      t.botDraw = {
+        ops,
+        total: ops.reduce((n, o) => n + (o.t === 's' ? o.p.length / 2 : 20), 0),
+        done: 0,
+        opIndex: 0,
+        pointIndex: 0,
+        strokeId: 0,
+        startAt: now + 800,
+        duration: Math.max(6000, Math.min(22000, this.drawMs() * 0.35)),
+      };
+    }
+    const pool = PACKS.mixed.easy.concat(PACKS.mixed.medium, PACKS.mixed.hard, doodleWords());
+    for (const bot of this.players) {
+      if (!bot.bot || bot.id === t.drawerId) continue;
+      const think = 3000 + (BOT_THINK_EXTRA[t.difficulty] || 2500) + rng() * 9000;
+      const willGuess = rng() < (BOT_GUESS_CHANCE[t.difficulty] || 0.8);
+      const wrongCount = willGuess ? (rng() < 0.4 ? 0 : rng() < 0.7 ? 1 : 2) : 1 + Math.floor(rng() * 2);
+      const wrong = [];
+      for (let i = 0; i < wrongCount; i++) {
+        let w = null;
+        for (let k = 0; k < 20 && !w; k++) {
+          const cand = pool[Math.floor(rng() * pool.length)];
+          if (checkGuess(cand, t.word) === 'wrong') w = cand;
+        }
+        if (w) wrong.push({ at: 1200 + rng() * Math.max(1500, think - 1500), text: w, sent: false });
+      }
+      if (!willGuess && rng() < 0.5) wrong.push({ at: think + 4000, text: BOT_STUMPED[Math.floor(rng() * BOT_STUMPED.length)], sent: false });
+      bot.brain = { turnId: t.id, willGuess, think, wrong };
+    }
+  }
+
+  // Runs every tick: bots choose, draw, guess and react.
+  tickBots(now) {
+    const t = this.turn;
+    if (!t || !this.players.some((p) => p.bot)) return;
+    const drawer = this.drawer;
+
+    if (this.phase === 'choosing' && drawer && drawer.bot) {
+      if (!t.botChooseAt) t.botChooseAt = t.startedAt + 1200 + this.rng() * 1600;
+      if (now >= t.botChooseAt) {
+        const r = this.rng();
+        this.chooseWord(drawer.id, r < 0.4 ? 0 : r < 0.8 ? 1 : 2);
+      }
+      return;
+    }
+
+    if (this.phase === 'drawing') {
+      if (t.botDraw && drawer) this.botDrawStep(drawer.id, now);
+      if (!t.inkAt && t.pointsUsed >= BOT_INK_POINTS) t.inkAt = now;
+      if (!t.inkAt) return;
+      for (const bot of this.players) {
+        if (this.phase !== 'drawing') return;
+        if (!bot.bot || bot.id === t.drawerId || bot.guessed || !bot.brain || bot.brain.turnId !== t.id) continue;
+        const since = now - t.inkAt;
+        for (const w of bot.brain.wrong) {
+          if (!w.sent && since >= w.at) {
+            w.sent = true;
+            this.chat(bot.id, w.text);
+          }
+        }
+        if (bot.brain.willGuess && since >= bot.brain.think && now - t.drawStartedAt >= 4000) this.chat(bot.id, t.word);
+      }
+      return;
+    }
+
+    if (this.phase === 'reveal' && !t.botReacted && now >= this.endsAt - this.timing.revealMs + 1200) {
+      t.botReacted = true;
+      const bots = this.players.filter((p) => p.bot);
+      if (bots.length && this.rng() < 0.45) {
+        const bot = bots[Math.floor(this.rng() * bots.length)];
+        const lines = t.correct === 0 && t.word ? BOT_STUMPED : BOT_REACTIONS;
+        this.chat(bot.id, lines[Math.floor(this.rng() * lines.length)]);
+      }
+    }
+  }
+
+  // Stream the bot's doodle like a person drawing: strokes begin, extend in chunks, end.
+  botDrawStep(botId, now) {
+    const bd = this.turn.botDraw;
+    const progress = Math.max(0, Math.min(1, (now - bd.startAt) / bd.duration));
+    const target = Math.floor(progress * bd.total);
+    let budget = 6;
+    while (bd.done < target && bd.opIndex < bd.ops.length && budget-- > 0) {
+      const op = bd.ops[bd.opIndex];
+      if (op.t === 'f') {
+        this.draw(botId, { t: 'f', x: op.x, y: op.y, c: op.c });
+        bd.done += 20;
+        bd.opIndex++;
+        continue;
+      }
+      const n = op.p.length / 2;
+      const upto = Math.min(n, bd.pointIndex + Math.max(1, target - bd.done), bd.pointIndex + 120);
+      const chunk = op.p.slice(bd.pointIndex * 2, upto * 2);
+      if (bd.pointIndex === 0) {
+        bd.strokeId++;
+        this.draw(botId, { t: 'b', id: bd.strokeId, c: op.c, s: op.s, p: chunk });
+      } else {
+        this.draw(botId, { t: 'e', id: bd.strokeId, p: chunk });
+      }
+      bd.done += upto - bd.pointIndex;
+      bd.pointIndex = upto;
+      if (upto >= n) {
+        this.draw(botId, { t: 'x', id: bd.strokeId });
+        bd.opIndex++;
+        bd.pointIndex = 0;
+      }
+    }
   }
 
   revealHint() {
@@ -532,6 +719,7 @@ class Room {
           drawerId: t.drawerId,
           drawerName: t.drawerName,
           drawerColor: t.drawerColor,
+          drawerBot: t.drawerBot,
           guessedCount: t.correct,
           ops,
         });
@@ -574,7 +762,7 @@ class Room {
     if (!p) return { error: 'Not in room.' };
     const text = sanitizeChat(raw);
     if (!text) return { error: 'Empty message.' };
-    if (this.rateLimited(p, 'chatTimes', CHAT_PER_SEC)) return { error: 'Slow down!' };
+    if (!p.bot && this.rateLimited(p, 'chatTimes', CHAT_PER_SEC)) return { error: 'Slow down!' };
     const msg = { name: p.name, color: p.color, from: p.id, text };
     const t = this.turn;
     const inTurn = this.phase === 'choosing' || this.phase === 'drawing';
@@ -633,7 +821,7 @@ class Room {
   sendChat(pid, msg) {
     const m = { id: ++this.msgSeq, ...msg };
     const p = this.get(pid);
-    if (!p) return;
+    if (!p || p.bot) return;
     p.history.push(m);
     if (p.history.length > CHAT_HISTORY) p.history.splice(0, p.history.length - CHAT_HISTORY);
     if (p.connected) this.send(pid, 'chat', m);
@@ -649,7 +837,7 @@ class Room {
     if (this.phase !== 'drawing' || !this.turn || this.turn.drawerId !== pid) return false;
     if (!op || typeof op !== 'object') return false;
     const p = this.get(pid);
-    if (!p || this.rateLimited(p, 'drawTimes', DRAW_MSGS_PER_SEC)) return false;
+    if (!p || (!p.bot && this.rateLimited(p, 'drawTimes', DRAW_MSGS_PER_SEC))) return false;
     const t = this.turn;
     let out = null;
     switch (op.t) {
@@ -710,7 +898,7 @@ class Room {
         return false;
     }
     for (const q of this.players) {
-      if (q.connected && q.id !== pid) this.send(q.id, 'draw', out);
+      if (q.connected && !q.bot && q.id !== pid) this.send(q.id, 'draw', out);
     }
     return true;
   }
@@ -766,6 +954,7 @@ class Room {
         score: p.score,
         connected: p.connected,
         guessed: p.guessed,
+        bot: !!p.bot,
       })),
       endsAt: this.endsAt,
       phaseMs: this.endsAt ? this.phaseMs : 0,
@@ -806,7 +995,7 @@ class Room {
 
   broadcastState() {
     for (const p of this.players) {
-      if (p.connected) this.send(p.id, 'state', this.viewFor(p.id));
+      if (p.connected && !p.bot) this.send(p.id, 'state', this.viewFor(p.id));
     }
   }
 
@@ -853,6 +1042,7 @@ class Room {
     } else if (this.phase === 'reveal' && now >= this.endsAt) {
       this.nextTurn();
     }
+    this.tickBots(this.now());
   }
 }
 
@@ -949,7 +1139,7 @@ class RoomManager {
     const now = this.now();
     for (const [code, room] of this.rooms) {
       room.tick();
-      if (room.connected().length === 0) {
+      if (room.humansConnected().length === 0) {
         if (room.emptySince == null) room.emptySince = now;
         if (now - room.emptySince >= this.timing.roomIdleMs) this.rooms.delete(code);
       } else {

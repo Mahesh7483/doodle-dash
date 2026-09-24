@@ -128,7 +128,14 @@
         <div class="card players-card">
           <div class="card-head">
             <h2>Players</h2>
-            <span id="lobby-count" class="pill"></span>
+            <div class="card-head-right">
+              <button id="add-bot-btn" class="btn btn-secondary btn-sm" type="button" hidden><svg class="icon icon-sm"><use href="#i-plus"/></svg> Add a bot</button>
+              <span id="lobby-count" class="pill"></span>
+            </div>
+          </div>
+          <div id="solo-hint" class="solo-hint" hidden>
+            <span class="solo-bot" aria-hidden="true">🤖</span>
+            <p><b>Playing alone?</b> Add a bot or two to try the game right now, then share the code so friends can join.</p>
           </div>
           <ul id="lobby-players" class="lobby-players"></ul>
         </div>
@@ -318,6 +325,7 @@
           <p>Podium (top 3), then the <b>Gallery</b>: every drawing of the game replays stroke-by-stroke with its word and artist; any drawing can be saved as PNG. “Play again” returns everyone to the lobby in the same room with scores reset.</p>
         </li>
       </ol>
+      <p class="rules-tip">Playing alone? The host can tap <b>Add a bot</b> in the lobby. Bots draw, guess and chat like players.</p>
       <p class="rules-tip">Tip: if your phone locks or the page reloads, just open it again — you keep your seat and score for 60 seconds.</p>
     </div>
   </dialog>

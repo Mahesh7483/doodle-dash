@@ -206,6 +206,18 @@ function createServer(options = {}) {
       reply(ack, cur.room.updateSettings(cur.pid, patch));
     });
 
+    socket.on('bot:add', (ack) => {
+      const cur = current();
+      if (!cur) return reply(ack, { error: 'Not in a room.' });
+      reply(ack, cur.room.addBot(cur.pid));
+    });
+
+    socket.on('bot:remove', (botId, ack) => {
+      const cur = current();
+      if (!cur) return reply(ack, { error: 'Not in a room.' });
+      reply(ack, cur.room.removeBot(cur.pid, String(botId)));
+    });
+
     socket.on('start', (ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });

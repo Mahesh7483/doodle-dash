@@ -472,12 +472,16 @@ function renderLobby() {
     const tags = [];
     if (p.id === v.hostId) tags.push('<span class="tag tag-host"><svg class="icon icon-xs"><use href="#i-crown"/></svg>host</span>');
     if (p.id === v.me) tags.push('<span class="tag tag-you">you</span>');
+    if (p.bot) tags.push('<span class="tag tag-bot">bot</span>');
     if (!p.connected) tags.push('<span class="tag tag-away">reconnecting…</span>');
-    return `<li class="lp ${p.connected ? '' : 'away'}">${avatar(p)}<span class="lp-name">${esc(p.name)}</span><span class="lp-tags">${tags.join('')}</span></li>`;
+    const remove = p.bot && host ? `<button type="button" class="lp-remove" data-remove-bot="${esc(p.id)}" aria-label="Remove ${esc(p.name)}"><svg class="icon icon-sm"><use href="#i-close"/></svg></button>` : '';
+    return `<li class="lp ${p.connected ? '' : 'away'} ${p.bot ? 'lp-bot' : ''}">${avatar(p)}<span class="lp-name">${esc(p.name)}</span><span class="lp-tags">${tags.join('')}</span>${remove}</li>`;
   });
   const slots = Math.min(MAX_PLAYERS, Math.max(4, v.players.length + 1)) - v.players.length;
   for (let i = 0; i < slots; i++) items.push('<li class="lp lp-empty"><span class="avatar avatar-empty"></span><span class="lp-name">Waiting for a friend…</span></li>');
   $('#lobby-players').innerHTML = items.join('');
+  $('#add-bot-btn').hidden = !host || v.players.length >= MAX_PLAYERS;
+  $('#solo-hint').hidden = !(host && v.players.length === 1);
 
   // Settings
   seg($('#set-rounds'), [2, 3, 4, 5].map((n) => [n, String(n)]), v.settings.rounds, host, (n) => updateSettings({ rounds: n }));
@@ -508,7 +512,7 @@ function renderLobby() {
   start.disabled = connected < 2 || needCustom;
   let hint = '';
   if (host) {
-    if (connected < 2) hint = 'You need at least 2 players — share the code!';
+    if (connected < 2) hint = 'You need at least 2 players — share the code or add a bot!';
     else if (needCustom) hint = 'Add at least 10 custom words, or pick another pack.';
     else hint = `${connected} players ready. Let's go!`;
   } else {
@@ -551,6 +555,18 @@ $('#custom-save').addEventListener('click', async () => {
   ta.dataset.synced = '';
   if (res.error) toast(res.error);
   else toast(`Saved ${res.customCount} custom words`);
+});
+
+$('#add-bot-btn').addEventListener('click', async () => {
+  sfx.click();
+  const res = await emit('bot:add');
+  if (res.error) toast(res.error);
+});
+$('#lobby-players').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-remove-bot]');
+  if (!b) return;
+  const res = await emit('bot:remove', b.dataset.removeBot);
+  if (res.error) toast(res.error);
 });
 
 $('#start-btn').addEventListener('click', async () => {
@@ -633,7 +649,7 @@ function renderGame() {
     disp.innerHTML = wordHtml(t.word);
   } else if (drawing && t.mask) {
     const lens = maskLengths(t.mask);
-    label.innerHTML = `Guess the word · ${lens.join(' + ')} letters${t.mult ? ` · <span class="diff diff-${t.difficulty}">${MULT_LABEL[t.mult]}</span>` : ''}`;
+    label.innerHTML = `<span class="hide-narrow">Guess the word · </span>${lens.join(' + ')} letters${t.mult ? ` · <span class="diff diff-${t.difficulty}">${MULT_LABEL[t.mult]}</span>` : ''}`;
     disp.innerHTML = maskHtml(t.mask);
   } else if (v.phase === 'reveal') {
     label.textContent = t && t.word ? 'The word was' : roundTxt;
@@ -1086,7 +1102,7 @@ function renderGallery() {
         </button>
         <figcaption>
           <div class="frame-word">${esc(d.word)}</div>
-          <div class="frame-by">${avatar({ name: d.drawerName, color: d.drawerColor }, 'avatar-xs')} <span>${esc(d.drawerName)}</span></div>
+          <div class="frame-by">${avatar({ name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} <span>${esc(d.drawerName)}</span></div>
           <div class="frame-meta">Round ${d.round} · ${d.guessedCount ? `${d.guessedCount} guessed it` : 'nobody guessed it'}</div>
         </figcaption>
         <div class="frame-actions">
@@ -1177,7 +1193,7 @@ function openViewer(i) {
   $('#viewer').hidden = false;
   document.body.classList.add('viewer-open');
   $('#viewer-word').textContent = d.word;
-  $('#viewer-by').innerHTML = `${avatar({ name: d.drawerName, color: d.drawerColor }, 'avatar-xs')} drawn by ${esc(d.drawerName)} · ${viewerIndex + 1} / ${drawings.length}`;
+  $('#viewer-by').innerHTML = `${avatar({ name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} drawn by ${esc(d.drawerName)} · ${viewerIndex + 1} / ${drawings.length}`;
   if (viewerStop) viewerStop();
   viewerStop = replay($('#viewer-canvas'), d.ops, { duration: replayDuration(d) });
 }
@@ -1252,8 +1268,8 @@ function confetti() {
 // Shared UI bits
 
 function avatar(p, cls = '') {
-  const initial = esc([...(p.name || '?').trim()][0] || '?').toUpperCase();
-  return `<span class="avatar ${cls}" style="--pc:${esc(p.color || '#999')}" aria-hidden="true">${initial}</span>`;
+  const initial = p.bot ? '🤖' : esc([...(p.name || '?').trim()][0] || '?').toUpperCase();
+  return `<span class="avatar ${cls}${p.bot ? ' avatar-bot' : ''}" style="--pc:${esc(p.color || '#999')}" aria-hidden="true">${initial}</span>`;
 }
 
 function esc(s) {

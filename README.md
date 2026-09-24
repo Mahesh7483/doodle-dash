@@ -17,6 +17,8 @@ about 30–50 seconds while the server wakes up.)
   and chat that keeps the drawing in view while you type. It works on laptops too, with a
   three-column layout.
 - **One-tap join.** Friends scan the QR code or open the `/r/ABCD` link and they're in.
+- **Try it alone in seconds.** Tap **Add a bot** in the lobby. Bots draw hand-drawn doodles
+  stroke by stroke, guess your drawing once there's something on the canvas, and chat a little.
 - **Risk vs. reward.** The drawer picks an easy (×1), medium (×1.5) or hard (×2) word. Harder
   words pay more for everyone.
 - **The Gallery.** At the end, every drawing replays stroke by stroke with its word and artist.
@@ -37,7 +39,7 @@ about 30–50 seconds while the server wakes up.)
    code or share a link (`/r/ABCD`) so others join in one tap. 2–8 players.
 2. **Lobby.** The host sets rounds (2–5, default 3), draw time (60 / 80 / 100 s, default 80) and a
    word pack (Everyday, Animals, Food, Places, Actions, Mixed, or Custom words). Start needs at
-   least 2 players.
+   least 2 players. Playing alone? The host can add bots, and they draw and guess too.
 3. **Each turn.** Every player draws once per round.
    - The drawer picks 1 of 3 words (one easy, one medium, one hard) within 15 s, or gets a
      random one.
@@ -88,9 +90,10 @@ The first time you run the browser tests on your own machine you may need
 | Suite | What it checks |
 | --- | --- |
 | `test/game.test.js` | scoring and multipliers, hint schedule and the half-letters cap, guess matching and "so close", turns and rounds, early end when all guess, reconnect within 60 s, host migration, drawer disconnect, joining mid-game, room full, word packs, custom words |
-| `test/leak.test.js` | plays 25 randomized games and checks that no payload sent to a guesser contains the word (or the drawer's choices) before they guess it or the reveal |
+| `test/leak.test.js` | plays 25 randomized games (half of them with a bot) and checks that no payload sent to a guesser, including chat restored after a refresh, contains the word (or the drawer's choices) before they guess it or the reveal |
+| `test/bots.test.js` | adding and removing bots, bots never hosting, a solo game against a bot played to the end (the bot draws its whole doodle and guesses only after there's ink), bots never leaking the word, every doodle is valid drawing data |
 | `test/integration.test.js` | starts the real server with short timers, plays a full 3-player game over Socket.IO to the end, checks every score against the formula, and repeats the leak check on what each socket received |
-| `e2e/game.spec.js` | desktop host + iPhone-size guest: create, join by link and by code, draw with mouse and touch, check the pixels appear on the other screen, refresh mid-turn, guess, podium, gallery replay, Save PNG, play again |
+| `e2e/game.spec.js` | desktop host + iPhone-size guest: create, join by link and by code, draw with mouse and touch, check the pixels appear on the other screen, refresh mid-turn as guesser and as drawer, guess, podium, gallery replay, Save PNG, play again; plus a phone playing a whole game alone against a bot |
 
 ---
 
@@ -132,7 +135,8 @@ Every push to the `main` branch redeploys automatically.
   with an injectable clock (rooms, turns, timers, scoring, hints, reconnects, host migration),
   which is why it's easy to test. `index.js` wires it to HTTP and sockets and serves the QR code
   at `/qr/ABCD.svg` (rendered on the server with the `qrcode` package). `words.js` has 5 packs of
-  90 words each.
+  90 words each, and `doodles.js` has the 20 doodles bots draw (simple shapes with a hand-drawn
+  wobble).
 - **Client** (`public/`): plain HTML, CSS and JavaScript with no build step. `canvas.js` draws on
   a fixed 800×600 canvas scaled to fit, so every screen shows the same picture; strokes are
   streamed to the other players in 40 ms chunks. `app.js` handles screens, chat and the gallery,
@@ -143,7 +147,7 @@ Every push to the `main` branch redeploys automatically.
   timers.
 
 ```
-server/   index.js (HTTP + sockets), game.js (game logic), words.js (word packs)
+server/   index.js (HTTP + sockets), game.js (game logic, bots), words.js (word packs), doodles.js (bot drawings)
 public/   index.html, app.js, canvas.js, sound.js, style.css, fonts/, icons
 test/     node:test unit, leak and integration tests
 e2e/      Playwright browser test

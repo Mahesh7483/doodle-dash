@@ -340,3 +340,72 @@ test('join by typing the code; a second tab in the same browser gets its own sea
   await b.close();
   await c.close();
 });
+
+test('solo: one phone plays a whole game against a bot', async ({ browser }) => {
+  const { doodleWords } = require('../server/doodles');
+  const ctx = await browser.newContext({ ...phoneDevice });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+
+  await page.goto('/');
+  await page.locator('#name-input').fill('Solo');
+  await page.locator('#create-btn').click();
+  await expect(page.locator('#solo-hint')).toBeVisible();
+  await expect(page.locator('#start-btn')).toBeDisabled();
+  await page.locator('#add-bot-btn').click();
+  await expect(page.locator('#lobby-players .lp-bot')).toHaveCount(1);
+  await expect(page.locator('#solo-hint')).toBeHidden();
+  await expect(page.locator('#start-btn')).toBeEnabled();
+  await shot(page, 'phone-13-lobby-with-bot');
+  await page.locator('#set-rounds button', { hasText: '2' }).click();
+  await page.locator('#start-btn').click();
+
+  let myTurns = 0;
+  let botTurns = 0;
+  let botGuessedMine = 0;
+  for (let guard = 0; guard < 8; guard++) {
+    const next = await Promise.race([
+      page.locator('.choice').first().waitFor({ timeout: 60000 }).then(() => 'draw'),
+      page.locator('#word-display .mask').waitFor({ timeout: 60000 }).then(() => 'guess'),
+      page.locator('#screen-podium').waitFor({ timeout: 60000 }).then(() => 'end'),
+    ]);
+    if (next === 'end') break;
+    if (next === 'draw') {
+      myTurns++;
+      await page.locator('.choice-easy').click();
+      await expect(page.locator('#toolbar')).toBeVisible();
+      await drawWithTouch(page, ctx);
+      // The bot guesses a few seconds after there's ink (or the timer runs out).
+      await expect(page.locator('.ov-reveal')).toBeVisible({ timeout: 40000 });
+      if (await page.locator('.ov-reveal', { hasText: 'Everyone got it' }).count()) botGuessedMine++;
+    } else {
+      botTurns++;
+      // The bot draws its doodle stroke by stroke.
+      await expect.poll(async () => (await canvasInfo(page)).ink, { timeout: 30000, message: 'bot drawing appears' }).toBeGreaterThan(20000);
+      if (botTurns === 1) {
+        await page.waitForTimeout(7000); // let the doodle finish
+        await shot(page, 'phone-14-guessing-bot-drawing');
+      }
+      const mask = await page.evaluate(() => window.__dd.S.view.turn.mask);
+      const fits = (w) => w.length === mask.length && [...w].every((ch, i) => mask[i] === null || mask[i] === ch);
+      for (const w of doodleWords().filter(fits)) {
+        await guess(page, w);
+        await page.waitForTimeout(400);
+        if (await page.locator('#chat-log .msg-you-correct').count() >= botTurns) break;
+      }
+      await expect(page.locator('#chat-log .msg-you-correct')).toHaveCount(botTurns);
+    }
+  }
+  expect(myTurns).toBe(2);
+  expect(botTurns).toBe(2);
+  expect(botGuessedMine).toBeGreaterThanOrEqual(1);
+  await expect(page.locator('#screen-podium')).toBeVisible({ timeout: 40000 });
+  await page.locator('#to-gallery-btn').click();
+  await expect(page.locator('.frame')).toHaveCount(4);
+  await expect(page.locator('.frame-by', { hasText: 'Doodlebot' })).toHaveCount(2);
+  await page.waitForTimeout(5000);
+  await shot(page, 'phone-15-gallery-with-bot');
+  expect(errors).toEqual([]);
+  await ctx.close();
+});

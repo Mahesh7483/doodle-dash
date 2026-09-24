@@ -41,6 +41,7 @@ function playAndCheck(seed) {
   const { room, ids, sent } = env;
   const rnd = mulberry32(seed * 31 + 1);
   room.updateSettings(ids[0], { rounds: 2 });
+  if (seed % 2 === 0) room.addBot(ids[0]); // bots chat and guess too
   room.start(ids[0]);
   let checked = 0;
   let late = null;

@@ -842,6 +842,62 @@ body.rejoining .home-foot {
   white-space: nowrap;
 }
 
+.lp-remove {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin: -4px -4px -4px 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.lp-remove:hover {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.tag-bot {
+  background: var(--purple-soft);
+  border-color: var(--purple);
+  color: var(--text);
+}
+
+.avatar-bot {
+  font-size: calc(var(--size) * 0.5);
+  text-shadow: none;
+}
+
+.card-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.solo-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--purple-soft);
+  border: 2px dashed var(--purple);
+}
+
+.solo-hint p {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.solo-bot {
+  font-size: 1.9rem;
+  line-height: 1;
+  animation: bob 1.6s ease-in-out infinite;
+}
+
 .lp-empty {
   background: transparent;
   border-style: dashed;
@@ -2760,7 +2816,7 @@ body.viewer-open {
 }
 
 .rules-tip {
-  margin: 18px 0 0 !important;
+  margin: 12px 0 0 !important;
   padding: 10px 14px;
   border-radius: 12px;
   background: var(--surface-2);
