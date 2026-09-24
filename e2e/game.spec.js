@@ -150,6 +150,17 @@ test('full game: desktop host + phone guest (joins via /r/CODE), draw, guess, re
   expect(isInk((await canvasInfo(guest, 400, 300)).pixel)).toBe(true);
   await shot(host, 'desktop-06-drawing');
 
+  // Live reactions: the phone sends some, they float up on the laptop.
+  await guest.locator('#react-btn').click();
+  await expect(guest.locator('#react-tray')).toBeVisible();
+  await guest.locator('[data-react="lol"]').click();
+  await guest.locator('[data-react="fire"]').click();
+  await expect(host.locator('.floater')).toHaveCount(2);
+  await expect(host.locator('.floater').first()).toContainText('Ben');
+  await host.waitForTimeout(250);
+  await host.screenshot({ path: path.join(SHOTS, 'desktop-06b-reactions.png') });
+  await guest.screenshot({ path: path.join(SHOTS, 'phone-06b-reactions.png') });
+
   // Fill the background yellow; the phone sees it too.
   await host.locator('[data-tool="fill"]').click();
   await host.locator('[data-color="5"]').click();

@@ -608,3 +608,20 @@ test('gallery keeps every finished drawing (after the last clear) with word and 
     { t: 'f', x: 5, y: 5, c: 5 },
   ]);
 });
+
+test('reactions: a fixed emoji set, sent to everyone, rate-limited', () => {
+  const env = setup({ players: 3 });
+  const { room, ids, sent } = env;
+  sent.length = 0;
+  assert.ok(room.react(ids[1], 'fire').ok);
+  for (const pid of ids) {
+    const r = sent.find((m) => m.pid === pid && m.event === 'reaction');
+    assert.deepEqual({ from: r.data.from, emoji: r.data.emoji, name: r.data.name }, { from: ids[1], emoji: 'fire', name: 'Player 1' });
+  }
+  assert.equal(room.react(ids[1], 'hello').error, 'Unknown reaction.', 'no free text through reactions');
+  assert.equal(room.react(ids[1], '<b>').error, 'Unknown reaction.');
+  for (let i = 0; i < 4; i++) room.react(ids[1], 'lol');
+  assert.equal(room.react(ids[1], 'lol').error, 'Slow down!');
+  env.advance(2100);
+  assert.ok(room.react(ids[1], 'lol').ok);
+});

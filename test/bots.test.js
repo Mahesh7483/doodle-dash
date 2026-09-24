@@ -158,5 +158,7 @@ test('bots talk in chat but never leak the word or spam', () => {
   assert.equal(room.phase, 'gameOver');
   const botChat = sent.filter((m) => m.pid === me && m.event === 'chat' && m.data.kind === 'chat' && room.players.find((p) => p.id === m.data.from && p.bot));
   assert.ok(botChat.length >= 2, 'bots say something');
+  const botReactions = sent.filter((m) => m.pid === me && m.event === 'reaction' && room.players.find((p) => p.id === m.data.from && p.bot));
+  assert.ok(botReactions.length >= 1, 'bots react to drawings');
   assert.ok(botChat.length < 60, `not spammy (${botChat.length} lines)`);
 });

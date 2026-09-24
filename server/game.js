@@ -33,6 +33,10 @@ const BOT_THINK_EXTRA = { easy: 0, medium: 2500, hard: 5000 };
 const BOT_REACTIONS = ['nice one!', 'haha', 'gg', 'that was fun', 'wow 🎨', 'love it', 'ooh, tricky', 'again again!'];
 const BOT_STUMPED = ['no idea 😅', 'that was a tough one!', 'hmm, what was it?'];
 
+// Live reactions that float over the canvas: sticker ids from a fixed set (drawn by the client).
+const REACTIONS = ['lol', 'fire', 'love', 'wow', 'hmm', 'star'];
+const REACTIONS_PER_2S = 5;
+
 const DEFAULT_TIMING = {
   chooseMs: 15000,
   revealMs: 5000,
@@ -598,7 +602,9 @@ class Room {
         if (w) wrong.push({ at: 1200 + rng() * Math.max(1500, think - 1500), text: w, sent: false });
       }
       if (!willGuess && rng() < 0.5) wrong.push({ at: think + 4000, text: BOT_STUMPED[Math.floor(rng() * BOT_STUMPED.length)], sent: false });
-      bot.brain = { turnId: t.id, willGuess, think, wrong };
+      // Sometimes a bot reacts to the drawing, like a person would.
+      const reaction = rng() < 0.55 ? { at: 1500 + rng() * 7000, emoji: REACTIONS[Math.floor(rng() * REACTIONS.length)], sent: false } : null;
+      bot.brain = { turnId: t.id, willGuess, think, wrong, reaction };
     }
   }
 
@@ -630,6 +636,11 @@ class Room {
             w.sent = true;
             this.chat(bot.id, w.text);
           }
+        }
+        const r = bot.brain.reaction;
+        if (r && !r.sent && since >= r.at) {
+          r.sent = true;
+          this.react(bot.id, r.emoji);
         }
         if (bot.brain.willGuess && since >= bot.brain.think && now - t.drawStartedAt >= 4000) this.chat(bot.id, t.word);
       }
@@ -749,12 +760,23 @@ class Room {
 
   // ---- chat & guessing
 
-  rateLimited(p, key, perSec) {
+  rateLimited(p, key, perWindow, windowMs = 1000) {
     const now = this.now();
-    p[key] = p[key].filter((t) => now - t < 1000);
-    if (p[key].length >= perSec) return true;
+    p[key] = (p[key] || []).filter((t) => now - t < windowMs);
+    if (p[key].length >= perWindow) return true;
     p[key].push(now);
     return false;
+  }
+
+  react(pid, emoji) {
+    const p = this.get(pid);
+    if (!p) return { error: 'Not in room.' };
+    if (!REACTIONS.includes(emoji)) return { error: 'Unknown reaction.' };
+    if (!p.bot && this.rateLimited(p, 'reactTimes', REACTIONS_PER_2S, 2000)) return { error: 'Slow down!' };
+    for (const q of this.players) {
+      if (q.connected && !q.bot) this.send(q.id, 'reaction', { from: p.id, emoji, name: p.name, color: p.color });
+    }
+    return { ok: true };
   }
 
   chat(pid, raw) {
@@ -1171,4 +1193,5 @@ module.exports = {
   CANVAS_W,
   CANVAS_H,
   MAX_POINTS_PER_TURN,
+  REACTIONS,
 };

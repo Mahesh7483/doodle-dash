@@ -237,8 +237,10 @@
 
         <div class="chat">
           <ul id="chat-log" class="chat-log" aria-live="polite"></ul>
+          <div id="react-tray" class="react-tray" role="group" aria-label="Reactions" hidden></div>
           <form id="chat-form" class="chat-form" autocomplete="off">
             <input id="chat-input" class="input chat-input" type="text" maxlength="100" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send" placeholder="Type your guess…" aria-label="Chat or guess">
+            <button id="react-btn" class="btn btn-secondary react-btn" type="button" aria-label="Send a reaction" aria-expanded="false" aria-controls="react-tray"></button>
             <button class="btn btn-primary chat-send" type="submit" aria-label="Send"><svg class="icon"><use href="#i-send"/></svg></button>
           </form>
         </div>
@@ -358,6 +360,8 @@
     </div>
   </div>
 
+  <div id="float-layer" class="float-layer" aria-hidden="true"></div>
+  <canvas id="burst" class="confetti" aria-hidden="true"></canvas>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <div id="conn-banner" class="conn-banner" role="status" hidden>Reconnecting…</div>
 

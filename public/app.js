@@ -1,5 +1,6 @@
 import { Board, DrawInput, PALETTE, COLOR_NAMES, replay, exportPng } from './canvas.js';
 import { sfx, isMuted, setMuted } from './sound.js';
+import { STICKERS, STICKER_IDS, REACT_ICON } from './stickers.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -202,6 +203,10 @@ socket.on('gallery', ({ drawings }) => {
   renderPodium();
 });
 socket.on('drawLimit', ({ message }) => toast(message));
+socket.on('reaction', ({ from, emoji, name, color }) => {
+  if (S.view && from === S.view.me) return; // already shown when tapped
+  floatReaction(emoji, name, color);
+});
 socket.on('replaced', () => {
   S.code = null;
   S.view = null;
@@ -734,7 +739,7 @@ function renderPlayers() {
       if (isDrawer) status = '<span class="pl-status" title="Drawing"><svg class="icon icon-xs"><use href="#i-brush"/></svg></span>';
       else if (p.guessed) status = '<span class="pl-status ok" title="Guessed it"><svg class="icon icon-xs"><use href="#i-check"/></svg></span>';
       const gain = pts && pts[p.id] ? ` <span class="pl-gain">+${pts[p.id]}</span>` : '';
-      return `<li class="${cls}">
+      return `<li class="${cls}" data-pid="${esc(p.id)}">
         <span class="pl-rank">#${ranks.get(p.id)}</span>
         <span class="pl-av">${avatar(p)}${status}</span>
         <span class="pl-main"><span class="pl-name">${esc(p.name)}${p.id === v.me ? ' <span class="you">(you)</span>' : ''}</span>
@@ -963,11 +968,15 @@ function renderChat(m, live) {
       if (live) {
         sfx.correct();
         vibrate([30, 40, 30]);
+        burst($('#chat-input'));
       }
       break;
     case 'correct':
       li.innerHTML = `<svg class="icon icon-sm"><use href="#i-check"/></svg><span>${esc(m.text)}</span>`;
-      if (live) sfx.pop();
+      if (live) {
+        sfx.pop();
+        pulsePlayer(m.from);
+      }
       break;
     default:
       li.innerHTML = `<span>${esc(m.text)}</span>`;
@@ -1216,6 +1225,107 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft') openViewer(viewerIndex - 1);
   if (e.key === 'ArrowRight') openViewer(viewerIndex + 1);
 });
+
+// ---------------------------------------------------------------------------
+// Reactions: tap an emoji, it floats up over the drawing on every screen.
+
+const reactTray = $('#react-tray');
+reactTray.innerHTML = STICKER_IDS.map((id) => `<button type="button" data-react="${id}" aria-label="${STICKERS[id].label}">${STICKERS[id].svg}</button>`).join('');
+$('#react-btn').innerHTML = REACT_ICON;
+let trayTimer = null;
+function setTray(open) {
+  reactTray.hidden = !open;
+  $('#react-btn').setAttribute('aria-expanded', String(open));
+  clearTimeout(trayTimer);
+  if (open) trayTimer = setTimeout(() => setTray(false), 5000);
+}
+$('#react-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  setTray(reactTray.hidden);
+});
+reactTray.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  const b = e.target.closest('[data-react]');
+  if (!b) return;
+  setTray(true); // keep it open for rapid taps
+  const me = S.view && player(S.view.me);
+  floatReaction(b.dataset.react, me ? me.name : '', me ? me.color : '#999');
+  vibrate(10);
+  const res = await emit('react', b.dataset.react);
+  if (res.error === 'Slow down!') toast('Easy there!');
+});
+document.addEventListener('click', (e) => {
+  if (!reactTray.hidden && !e.target.closest('#react-tray, #react-btn')) setTray(false);
+});
+
+const floatLayer = $('#float-layer');
+function floatReaction(id, name, color) {
+  const sticker = STICKERS[id];
+  if (!sticker || floatLayer.childElementCount > 40) return;
+  const onGame = currentScreen() === 'game';
+  const r = onGame ? $('#canvas-wrap').getBoundingClientRect() : { left: innerWidth * 0.2, width: innerWidth * 0.6, bottom: innerHeight - 90 };
+  const el = document.createElement('span');
+  el.className = 'floater';
+  el.style.left = `${r.left + r.width * (0.12 + Math.random() * 0.76)}px`;
+  el.style.top = `${r.bottom - 36}px`;
+  el.style.setProperty('--dx', `${Math.round((Math.random() - 0.5) * 70)}px`);
+  el.style.setProperty('--rot', `${Math.round((Math.random() - 0.5) * 30)}deg`);
+  el.innerHTML = `<span class="fe">${sticker.svg}</span>${name ? `<span class="fn" style="--pc:${esc(color)}">${esc(name)}</span>` : ''}`;
+  el.addEventListener('animationend', () => el.remove());
+  floatLayer.appendChild(el);
+}
+
+function pulsePlayer(pid) {
+  const li = pid && document.querySelector(`#player-list [data-pid="${CSS.escape(pid)}"]`);
+  if (!li) return;
+  li.classList.remove('pulse');
+  void li.offsetWidth;
+  li.classList.add('pulse');
+}
+
+// A small confetti pop from an element (used when you guess right).
+function burst(fromEl) {
+  const c = $('#burst');
+  if (!c || !fromEl || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const r = fromEl.getBoundingClientRect();
+  const ctx = c.getContext('2d');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  c.width = innerWidth * dpr;
+  c.height = innerHeight * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const colors = ['#ff5c39', '#ffd23f', '#2bb673', '#2f6fe4', '#8e5cf7', '#ff7eb6'];
+  const parts = Array.from({ length: 46 }, () => ({
+    x: r.left + r.width * (0.2 + Math.random() * 0.6),
+    y: r.top,
+    vx: (Math.random() - 0.5) * 9,
+    vy: -Math.random() * 10 - 5,
+    r: Math.random() * Math.PI,
+    vr: (Math.random() - 0.5) * 0.5,
+    w: 5 + Math.random() * 7,
+    h: 3 + Math.random() * 5,
+    c: colors[Math.floor(Math.random() * colors.length)],
+  }));
+  const t0 = performance.now();
+  (function frame(now) {
+    const t = now - t0;
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    for (const p of parts) {
+      p.vy += 0.42;
+      p.x += p.vx;
+      p.y += p.vy;
+      p.r += p.vr;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.r);
+      ctx.globalAlpha = Math.max(0, 1 - t / 1300);
+      ctx.fillStyle = p.c;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      ctx.restore();
+    }
+    if (t < 1300) requestAnimationFrame(frame);
+    else ctx.clearRect(0, 0, innerWidth, innerHeight);
+  })(t0);
+}
 
 // ---------------------------------------------------------------------------
 // Confetti
