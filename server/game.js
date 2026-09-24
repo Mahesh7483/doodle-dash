@@ -531,9 +531,10 @@ class Room {
     }
     this.phase = 'reveal';
     this.endsAt = this.now() + this.timing.revealMs;
+    // State first, so every client is in the reveal phase before the word shows up in chat.
+    this.broadcastState();
     if (t.word) this.system(`The word was “${t.word}”`, 'reveal');
     else if (reason === 'drawerLeft') this.system(`${t.drawerName} left — skipping their turn`, 'system');
-    this.broadcastState();
   }
 
   gameOver() {

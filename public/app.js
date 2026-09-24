@@ -94,6 +94,7 @@ const S = {
   lastGallery: null,
   galleryCode: null,
   gameOverScreen: 'podium',
+  viewingLastGallery: false,
   phaseKey: '',
   phaseTotal: 1,
   lastSecond: null,
@@ -129,16 +130,22 @@ socket.on('connect', async () => {
   hideConn();
   syncClock();
   await tokenReady;
-  const code = S.code || ss.get('dd.room') || lastRoomFor(S.token);
+  // Reconnect to the room we were in; an invite link for a different room wins over a
+  // remembered one (if we still hold a seat in the invited room, this rejoins it).
+  const wasIn = S.code;
+  let code = wasIn || ss.get('dd.room') || lastRoomFor(S.token);
+  if (!wasIn && S.invite && code !== S.invite) code = S.invite;
   if (code) {
     const res = await emit('room:resume', { token: S.token, code });
     if (res.ok) {
       enterRoom(res.code);
       return;
     }
-    if (S.code) toast(res.error || 'Could not rejoin the room.');
+    if (wasIn) toast(res.error || 'Could not rejoin the room.');
     forgetRoom();
-    showHome(S.invite || code);
+    // Seat expired: offer to join that room again. Room closed (e.g. server restart): start fresh.
+    const closed = /closed/.test(res.error || '');
+    showHome(S.invite || (closed ? null : code));
     return;
   }
   if (!S.view) showHome(S.invite);
@@ -229,6 +236,7 @@ function showHome(inviteCode) {
   $('#invite-banner').hidden = !invite;
   $('#home-invite').hidden = !invite;
   $('#home-create').hidden = invite;
+  $('#screen-home').classList.toggle('is-invite', invite);
   if (invite) {
     $('#invite-code').textContent = inviteCode;
     $('#invite-join-btn').textContent = `Join room ${inviteCode}`;
@@ -376,14 +384,17 @@ function onPhaseChange(prev, v) {
   if (v.phase === 'lobby' && prev && prev.phase === 'gameOver' && S.gallery && S.gallery.length) {
     S.lastGallery = S.gallery;
   }
-  if (v.phase === 'lobby') S.gallery = null;
+  if (v.phase === 'lobby') {
+    S.gallery = null;
+    S.viewingLastGallery = false;
+  }
 }
 
 function render() {
   const v = S.view;
   if (!v) return;
   if (v.phase === 'lobby') {
-    if (currentScreen() !== 'gallery' || !S.lastGallery) showScreen('lobby');
+    if (!S.viewingLastGallery) showScreen('lobby');
     renderLobby();
   } else if (v.phase === 'gameOver') {
     showScreen(S.gameOverScreen);
@@ -527,9 +538,10 @@ $('#share-btn').addEventListener('click', async () => {
 $('#copy-btn').addEventListener('click', () => copyText(shareUrl()));
 $('#qr-btn').addEventListener('click', () => $('#qr-dialog').showModal());
 $('#last-gallery-btn').addEventListener('click', () => {
-  S.gallery = S.gallery || null;
+  S.viewingLastGallery = true;
   showScreen('gallery');
   renderGallery();
+  window.scrollTo(0, 0);
 });
 
 async function copyText(text) {
@@ -691,7 +703,7 @@ function renderOverlay() {
   let key = `${v.phase}:${t ? t.id : ''}`;
   if (v.phase === 'choosing') {
     if (amDrawer && t.choices) {
-      html = `<div class="ov-card">
+      html = `<div class="ov-card ov-choose">
         <div class="ov-kicker">Round ${v.round} of ${v.rounds} · Your turn!</div>
         <h2 class="ov-title">Pick a word to draw</h2>
         <div class="choices">${t.choices
@@ -989,6 +1001,7 @@ $('#gallery-back').addEventListener('click', () => {
     S.gameOverScreen = 'podium';
     showScreen('podium');
   } else {
+    S.viewingLastGallery = false;
     showScreen('lobby');
     renderLobby();
   }
@@ -1035,8 +1048,8 @@ function renderGallery() {
         </button>
         <figcaption>
           <div class="frame-word">${esc(d.word)}</div>
-          <div class="frame-by">${avatar({ name: d.drawerName, color: d.drawerColor }, 'avatar-xs')} <span>${esc(d.drawerName)}</span>
-            <span class="frame-meta">· round ${d.round} · ${d.guessedCount} guessed</span></div>
+          <div class="frame-by">${avatar({ name: d.drawerName, color: d.drawerColor }, 'avatar-xs')} <span>${esc(d.drawerName)}</span></div>
+          <div class="frame-meta">Round ${d.round} · ${d.guessedCount ? `${d.guessedCount} guessed it` : 'nobody guessed it'}</div>
         </figcaption>
         <div class="frame-actions">
           <button type="button" class="btn btn-secondary btn-sm" data-replay="${i}"><svg class="icon icon-sm"><use href="#i-replay"/></svg> Replay</button>

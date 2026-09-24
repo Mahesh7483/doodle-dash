@@ -39,6 +39,7 @@
   --red: #e8384f;
   --red-soft: #ffe3e6;
   --yellow-soft: #fff1bf;
+  --hl: #ffd23f; /* marker highlight behind headings */
   --radius: 18px;
   --radius-sm: 12px;
   --bw: 3px;
@@ -68,6 +69,7 @@
     --red: #ff6b7e;
     --red-soft: #45202a;
     --yellow-soft: #3d3413;
+    --hl: #8a6a00;
     color-scheme: dark;
   }
 }
@@ -525,7 +527,7 @@ code {
   right: 0;
   bottom: 0.06em;
   height: 0.42em;
-  background: var(--yellow);
+  background: var(--hl);
   border-radius: 0.2em;
   transform: rotate(-1.5deg);
 }
@@ -679,6 +681,20 @@ code {
 
 .how-btn {
   font-weight: 600;
+}
+
+/* Invite links: get the Join button above the fold on short phones. */
+.is-invite .logo {
+  font-size: clamp(2.6rem, 13vw, 3.6rem);
+}
+
+.is-invite .hero {
+  padding-top: 4px;
+}
+
+.is-invite .subtag,
+.is-invite .hero-doodles {
+  display: none;
 }
 
 .home-foot {
@@ -1442,6 +1458,43 @@ code {
   color: var(--green);
 }
 
+/* Phones: the word choice has to fit on a ~290px tall canvas. */
+@media (max-width: 699px) {
+  .overlay {
+    padding: 8px;
+  }
+
+  .ov-card {
+    padding: 10px 12px 12px;
+    gap: 6px;
+  }
+
+  .ov-title {
+    font-size: 1.1rem;
+  }
+
+  .ov-choose .ov-foot {
+    display: none;
+  }
+
+  .choices {
+    gap: 6px;
+  }
+
+  .choice {
+    min-height: 46px;
+    padding: 6px 12px;
+  }
+
+  .choice-word {
+    font-size: 1.08rem;
+  }
+
+  .ov-wait .avatar-xl {
+    --size: 56px;
+  }
+}
+
 /* Toolbar */
 .toolbar {
   --cur: #1d1a2b;
@@ -1906,10 +1959,19 @@ body.kb-open .side-players {
   }
 
   .toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
     padding-top: 12px;
+  }
+
+  .palette {
+    flex: 1 1 240px;
+  }
+
+  .tools {
+    flex: 0 0 auto;
   }
 
   .swatch {
@@ -1987,8 +2049,55 @@ body.kb-open .side-players {
   }
 }
 
+/* Small laptops: slimmer side columns, and room for a two-row toolbar. */
+@media (min-width: 900px) and (max-width: 1279px) and (min-height: 560px) {
+  .game-top {
+    grid-template-columns: 200px minmax(0, 1fr) 200px;
+  }
+
+  .game-body {
+    grid-template-columns: 200px minmax(0, 1fr) 270px;
+  }
+
+  body.is-drawer .canvas-wrap,
+  body.is-drawer .toolbar {
+    width: min(100%, calc((var(--app-h) - 310px) * 4 / 3));
+  }
+
+  .pl-rank {
+    display: none;
+  }
+}
+
 /* Short landscape phones: canvas | chat, players as a strip in the chat column */
 @media (orientation: landscape) and (max-height: 559px) {
+  .game-top {
+    padding-top: max(3px, env(safe-area-inset-top));
+    padding-bottom: 3px;
+  }
+
+  .timer {
+    width: 38px;
+    height: 38px;
+  }
+
+  .word-label {
+    font-size: 0.66rem;
+  }
+
+  .word {
+    font-size: calc(1.25rem * var(--wscale));
+  }
+
+  .word-display {
+    min-height: 26px;
+  }
+
+  .game-top .icon-btn {
+    width: 38px;
+    height: 38px;
+  }
+
   .game-body {
     display: grid;
     grid-template-columns: auto minmax(220px, 1fr);
@@ -2005,12 +2114,12 @@ body.kb-open .side-players {
 
   .canvas-wrap,
   .toolbar {
-    width: calc((var(--app-h) - 80px) * 4 / 3);
+    width: calc((var(--app-h) - 66px) * 4 / 3);
   }
 
   body.is-drawer .canvas-wrap,
   body.is-drawer .toolbar {
-    width: calc((var(--app-h) - 152px) * 4 / 3);
+    width: calc((var(--app-h) - 136px) * 4 / 3);
     min-width: 0;
   }
 
@@ -2025,8 +2134,36 @@ body.kb-open .side-players {
     padding-bottom: 6px;
   }
 
+  body.is-drawer .stage {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  body.is-drawer .canvas-wrap {
+    width: calc((var(--app-h) - 66px) * 4 / 3);
+  }
+
+  body.is-drawer .toolbar {
+    width: auto;
+    min-width: 0;
+    padding-top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .palette {
+    grid-template-columns: repeat(3, 34px);
+  }
+
   .swatch {
-    height: 28px;
+    height: 30px;
+  }
+
+  .tools {
+    flex-direction: column;
+    gap: 4px;
   }
 
   .tool {
@@ -2211,6 +2348,42 @@ body.kb-open .side-players {
   justify-items: center;
 }
 
+@media (min-width: 800px) and (min-height: 700px) {
+  .podium-wrap {
+    max-width: 680px;
+    gap: 20px;
+  }
+
+  .podium {
+    width: min(100%, calc(var(--places, 3) * 210px));
+  }
+
+  .pod-first .pod-block {
+    height: 190px;
+  }
+
+  .pod-second .pod-block {
+    height: 140px;
+  }
+
+  .pod-third .pod-block {
+    height: 100px;
+  }
+
+  .pod .avatar-lg {
+    --size: 72px;
+  }
+
+  .pod-name {
+    font-size: 1.2rem;
+  }
+
+  .podium-actions {
+    width: min(100%, 460px);
+    justify-self: center;
+  }
+}
+
 /* ================================================================== GALLERY */
 
 .screen-gallery {
@@ -2232,7 +2405,7 @@ body.kb-open .side-players {
   display: inline-block;
   font-size: clamp(2.2rem, 9vw, 3.4rem);
   padding: 0 0.15em;
-  background: linear-gradient(transparent 58%, var(--yellow) 58%, var(--yellow) 90%, transparent 90%);
+  background: linear-gradient(transparent 58%, var(--hl) 58%, var(--hl) 90%, transparent 90%);
 }
 
 .gallery-sub {
@@ -2326,9 +2499,10 @@ body.kb-open .side-players {
 }
 
 .frame-meta {
+  margin-top: 2px;
   font-weight: 500;
-  color: #7d7890;
-  font-size: 0.88rem;
+  color: #6f6a82;
+  font-size: 0.86rem;
 }
 
 .frame .avatar {
@@ -2366,6 +2540,7 @@ body.kb-open .side-players {
   inset: 0;
   z-index: 40;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   padding: 16px;
   background: rgba(16, 12, 24, 0.82);
@@ -2376,6 +2551,7 @@ body.kb-open .side-players {
 
 .viewer-inner {
   position: relative;
+  justify-self: center;
   width: min(100%, 900px, calc((100dvh - 190px) * 4 / 3));
   display: grid;
   gap: 12px;
@@ -2427,10 +2603,20 @@ body.kb-open .side-players {
   --b-bg: #fff;
 }
 
+@media (max-width: 480px) {
+  .hide-narrow {
+    display: none;
+  }
+
+  .viewer-actions .btn {
+    padding: 10px 14px;
+  }
+}
+
 .viewer-close {
   position: absolute;
   top: -12px;
-  right: -12px;
+  right: -8px;
   background: #fff;
   color: #1d1a2b;
   border: 3px solid #1d1a2b;
