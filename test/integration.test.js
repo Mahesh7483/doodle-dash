@@ -89,6 +89,13 @@ test('3 players play a full game over sockets; scores match the formula; no leak
   players[1].id = j1.playerId;
   players[2].id = j2.playerId;
 
+  // A TV screen watches the whole game.
+  const tv = { socket: await connect(url), log: [] };
+  tv.socket.onAny((event, data) => tv.log.push({ event, data: JSON.parse(JSON.stringify(data ?? null)) }));
+  const watching = await ask(tv.socket, 'room:watch', { code: code.toLowerCase() });
+  assert.ok(watching.ok, JSON.stringify(watching));
+  assert.equal(watching.code, code);
+
   const byId = (id) => players.find((p) => p.id === id);
   const turns = new Map(); // turnId -> record
   let turnCount = 0;
@@ -96,11 +103,15 @@ test('3 players play a full game over sockets; scores match the formula; no leak
   const done = new Promise((resolve) => (gameOver = resolve));
   const overSeen = new Set();
 
+  tv.socket.on('gallery', () => {
+    overSeen.add('tv');
+    if (overSeen.size === 4) gameOver();
+  });
   for (const p of players) {
-    // Done once everyone has the gallery (it follows the gameOver state).
+    // Done once everyone (and the TV) has the gallery (it follows the gameOver state).
     p.socket.on('gallery', () => {
       overSeen.add(p.i);
-      if (overSeen.size === 3) gameOver();
+      if (overSeen.size === 4) gameOver();
     });
     p.socket.on('state', (s) => {
       p.state = s;
@@ -236,6 +247,32 @@ test('3 players play a full game over sockets; scores match the formula; no leak
   }
   assert.ok(checked > 50, `checked ${checked} payload/word pairs`);
 
+  // ---- the TV saw the game like a guesser who never guesses
+  let tvPhase = 'lobby';
+  let tvTurn = null;
+  let tvChecked = 0;
+  for (const { event, data } of tv.log) {
+    if (event === 'state') {
+      assert.equal(data.watching, true);
+      tvPhase = data.phase;
+      tvTurn = data.turn ? data.turn.id : null;
+    }
+    const rec = (tvPhase === 'choosing' || tvPhase === 'drawing') && turns.get(tvTurn);
+    if (!rec) continue;
+    for (const w of rec.words) {
+      assert.ok(!containsWord(data, w), `"${w}" leaked to the TV in ${event}: ${JSON.stringify(data)}`);
+      tvChecked++;
+    }
+  }
+  assert.ok(tvChecked > 30, `checked ${tvChecked} TV payload/word pairs`);
+  assert.ok(tv.log.filter((m) => m.event === 'draw').length >= recs.length * 4, 'the TV got the drawing ops');
+  assert.ok(tv.log.some((m) => m.event === 'chat' && m.data.kind === 'correct'), 'the TV shows who guessed');
+  assert.ok(!tv.log.some((m) => m.event === 'chat' && ['private', 'close', 'you-correct'].includes(m.data.kind)), 'no private chat on the TV');
+  const tvGallery = tv.log.filter((m) => m.event === 'gallery').at(-1);
+  assert.deepEqual(tvGallery.data.drawings.map((d) => d.word), recs.map((r) => r.word));
+  assert.equal(players[0].state.screens, 1, 'players see the TV');
+
+  tv.socket.close();
   for (const p of players) p.socket.close();
 });
 
@@ -256,6 +293,16 @@ test('9th player gets "Room is full"; bad codes are rejected', { timeout: 30000 
   sockets.push(ninth);
   assert.equal((await ask(ninth, 'room:join', { name: 'Nine', token: 'full-test-token-9', code: created.code })).error, 'Room is full');
   assert.match((await ask(ninth, 'room:join', { name: 'Nine', token: 'full-test-token-9', code: 'QQQQ' })).error, /not found/);
+
+  // The host removes P1, who is told and can't come back in.
+  const joinedP1 = await ask(sockets[1], 'room:join', { name: 'P1', token: 'full-test-token-1', code: created.code });
+  const kickedEvent = new Promise((resolve) => sockets[1].once('kicked', resolve));
+  assert.ok((await ask(host, 'kick', joinedP1.playerId)).ok);
+  assert.deepEqual(await kickedEvent, { code: created.code });
+  assert.equal((await ask(sockets[1], 'chat', 'still here?')).error, 'Not in a room.');
+  assert.equal((await ask(sockets[1], 'room:join', { name: 'P1', token: 'full-test-token-1', code: created.code })).error, 'The host removed you from this room.');
+  assert.ok((await ask(ninth, 'room:join', { name: 'Nine', token: 'full-test-token-9', code: created.code })).ok, 'the free seat can be taken');
+  assert.equal((await ask(sockets[2], 'kick', created.playerId)).error, 'Only the host can remove players.');
   for (const s of sockets) s.close();
 });
 
@@ -274,7 +321,11 @@ test('HTTP: health check, QR code, invite links, static files', { timeout: 20000
   const html = await invite.text();
   assert.match(html, /Join my Doodle Dash room ABCD!/);
   assert.match(html, new RegExp(`content="${url}/og.png"`));
-  for (const f of ['/', '/og.png', '/icon-192.png', '/manifest.webmanifest', '/app.js', '/canvas.js', '/style.css', '/sound.js', '/favicon.svg', '/socket.io/socket.io.min.js']) {
+  const tvPage = await fetch(`${url}/tv/abcd`);
+  assert.equal(tvPage.status, 200);
+  assert.match(await tvPage.text(), /src="\/tv\.js"/);
+  assert.equal((await fetch(`${url}/tv`)).status, 200);
+  for (const f of ['/tv.js', '/tv.css', '/stickers.js', '/ui.js', '/', '/og.png', '/icon-192.png', '/manifest.webmanifest', '/app.js', '/canvas.js', '/style.css', '/sound.js', '/favicon.svg', '/socket.io/socket.io.min.js']) {
     assert.equal((await fetch(url + f)).status, 200, f);
   }
 });

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Doodle Dash — TV screen</title>
+  <meta name="description" content="Show your Doodle Dash room on a TV or laptop: the drawing, the scores and the gallery, while everyone plays on their phones.">
+  <meta name="theme-color" content="#fff6e5" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#16131f" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/fonts/fredoka-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/tv.css">
+</head>
+<body class="tv" data-screen="connect">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-crown" viewBox="0 0 24 24"><path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5L3 8z" fill="currentColor"/></symbol>
+      <symbol id="i-brush" viewBox="0 0 24 24"><path d="M4 20l1.2-4.8L15.6 4.8a2.2 2.2 0 013.1 3.1L8.3 18.3 4 20z"/><path d="M13.6 6.8l3.1 3.1"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7"/></symbol>
+      <symbol id="i-sound" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7M18.5 5.5a9 9 0 010 13"/></symbol>
+      <symbol id="i-mute" viewBox="0 0 24 24"><path d="M11 5L6 9H3v6h3l5 4V5z"/><path d="M22 9l-6 6M16 9l6 6"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7.5 4.5l11.5 7.5-11.5 7.5z" fill="currentColor"/></symbol>
+    </defs>
+  </svg>
+
+  <main class="tv-main">
+    <!-- Pick a room -->
+    <section id="tv-connect" class="tv-screen tv-connect">
+      <h1 class="logo"><span class="logo-doodle">Doodle</span><span class="logo-dash">Dash</span></h1>
+      <p class="tv-kicker">Party screen</p>
+      <form id="tv-form" class="tv-card" autocomplete="off">
+        <label for="tv-code" class="tv-label">Room code</label>
+        <input id="tv-code" class="tv-code-input" maxlength="4" inputmode="text" autocapitalize="characters" spellcheck="false" placeholder="ABCD" aria-describedby="tv-how">
+        <button type="submit" class="btn btn-primary btn-lg">Show it on this screen</button>
+        <p id="tv-error" class="tv-error" role="alert" hidden></p>
+      </form>
+      <p id="tv-how" class="tv-how">Create a room on your phone, then type its 4-letter code here. Everyone plays on their own phone while this screen shows the drawing, the scores and the gallery.</p>
+    </section>
+
+    <!-- Lobby: how to join + who's in -->
+    <section id="tv-lobby" class="tv-screen tv-lobby" hidden>
+      <div class="tvl-join">
+        <h1 class="logo tv-logo"><span class="logo-doodle">Doodle</span><span class="logo-dash">Dash</span></h1>
+        <h2 class="tvl-title">Join on your phone!</h2>
+        <div class="tvl-how">
+          <ol class="tvl-steps">
+            <li><span class="tvl-n">1</span><div>Open<b id="tvl-host" class="tvl-host"></b></div></li>
+            <li><span class="tvl-n">2</span><div>Enter the code<div id="tvl-code" class="room-code tv-room-code" aria-live="polite"></div></div></li>
+          </ol>
+          <div class="tvl-scan">
+            <div class="qr-frame tv-qr"><img id="tvl-qr" alt="QR code to join the room" width="220" height="220"></div>
+            <span>or scan</span>
+          </div>
+        </div>
+      </div>
+      <div class="tvl-side">
+        <div class="tvl-head"><h2>Players</h2><span id="tvl-count" class="tv-pill"></span></div>
+        <ul id="tvl-list" class="tvl-list"></ul>
+        <div id="tvl-settings" class="tvl-settings"></div>
+        <p id="tvl-wait" class="tvl-wait"></p>
+      </div>
+    </section>
+
+    <!-- Playing -->
+    <section id="tv-game" class="tv-screen tv-game" hidden>
+      <header class="tvg-top">
+        <div id="tvg-round" class="tvg-round"></div>
+        <div class="tvg-word word-area">
+          <div id="tvg-label" class="word-label"></div>
+          <div id="tvg-word" class="word-display"></div>
+        </div>
+        <div id="tvg-timer" class="timer tv-timer" aria-hidden="true">
+          <svg viewBox="0 0 46 46"><circle class="timer-track" cx="23" cy="23" r="19"/><circle id="tvg-ring" class="timer-ring" cx="23" cy="23" r="19"/></svg>
+          <span id="tvg-num" class="timer-num">–</span>
+        </div>
+      </header>
+      <aside class="tvg-scores" aria-label="Scores"><ol id="tvg-players" class="tvg-players"></ol></aside>
+      <div class="tvg-stage">
+        <div id="tvg-canvas-wrap" class="tvg-canvas-wrap">
+          <canvas id="tvg-board" width="800" height="600" aria-label="The drawing"></canvas>
+          <div id="tvg-drawer" class="tvg-drawer" hidden></div>
+          <div id="tvg-overlay" class="tvg-overlay" hidden></div>
+        </div>
+      </div>
+      <aside class="tvg-side">
+        <ul id="tvg-feed" class="tvg-feed" aria-live="polite"></ul>
+        <div class="tvg-join">
+          <div class="qr-frame"><img id="tvg-qr" alt="QR code to join" width="96" height="96"></div>
+          <div class="tvg-join-text">Join in:<b id="tvg-host"></b><span id="tvg-code" class="tvg-code"></span></div>
+        </div>
+      </aside>
+    </section>
+
+    <!-- Game over: podium and awards, then the gallery on a loop -->
+    <section id="tv-over" class="tv-screen tv-over" hidden>
+      <div id="tvo-podium-view" class="tvo-podium-view">
+        <div class="tvo-left">
+          <h1 id="tvo-title" class="tvo-title"></h1>
+          <div id="tvo-podium" class="tvo-podium"></div>
+        </div>
+        <div id="tvo-awards" class="tvo-awards"></div>
+      </div>
+      <div id="tvo-show" class="tvo-show" hidden>
+        <div class="tvo-show-head"><span class="tv-pill">The gallery</span><span id="tvo-count" class="tvo-count"></span></div>
+        <div class="tvo-stage">
+          <figure class="tvo-frame">
+            <div id="tvo-fav" class="fav-ribbon" hidden></div>
+            <canvas id="tvo-canvas" width="800" height="600"></canvas>
+          </figure>
+        </div>
+        <div class="tvo-cap">
+          <div id="tvo-word" class="tvo-word"></div>
+          <div id="tvo-by" class="tvo-by"></div>
+        </div>
+      </div>
+      <p id="tvo-foot" class="tvo-foot"></p>
+    </section>
+  </main>
+
+  <div class="tv-corner">
+    <span id="tv-sound-hint" class="tv-sound-hint" hidden>Click anywhere for sound</span>
+    <button type="button" id="tv-sound" class="icon-btn" aria-label="Mute sounds"><svg class="icon"><use href="#i-sound"/></svg></button>
+  </div>
+  <div id="float-layer" class="float-layer" aria-hidden="true"></div>
+  <canvas id="confetti" class="confetti" aria-hidden="true"></canvas>
+  <div id="conn-banner" class="conn-banner" role="status" hidden>Reconnecting…</div>
+
+  <script src="/socket.io/socket.io.min.js"></script>
+  <script type="module" src="/tv.js"></script>
+</body>
+</html>

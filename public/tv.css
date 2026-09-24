@@ -1,0 +1,1226 @@
+/* Doodle Dash — TV / big-screen view. Everything is sized in rem, and the root size follows
+   the screen, so the same layout works on a laptop window and across the room on a TV. */
+
+html {
+  font-size: clamp(12px, min(1.05vw, 1.95vh), 34px);
+}
+
+body.tv {
+  font-size: 1rem;
+  overflow: hidden;
+}
+
+.tv-main,
+.tv-screen {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.tv .avatar {
+  --size: 2.4rem;
+}
+
+.tv .icon {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+.tv-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.9rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 2.5px solid var(--line);
+  font-weight: 700;
+  font-size: 1.05rem;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------ connect */
+
+.tv-connect {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 1.4rem;
+  padding: 2rem;
+  text-align: center;
+}
+
+.tv .tv-connect .logo {
+  font-size: 6.5rem;
+}
+
+.tv-kicker {
+  margin: 0;
+  padding: 0.3rem 1.1rem;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--paper);
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tv-card {
+  width: min(30rem, 90vw);
+  display: grid;
+  gap: 1rem;
+  padding: 1.6rem;
+  background: var(--surface);
+  border: var(--border);
+  border-radius: 1.4rem;
+  box-shadow: var(--shadow);
+}
+
+.tv-label {
+  font-weight: 700;
+  font-size: 1.2rem;
+}
+
+.tv-code-input {
+  width: 100%;
+  padding: 0.3rem 0 0.3rem 0.4em;
+  font-size: 3.6rem;
+  font-weight: 700;
+  letter-spacing: 0.4em;
+  text-align: center;
+  text-transform: uppercase;
+  background: var(--surface-2);
+  border: var(--border);
+  border-radius: 1rem;
+  outline: none;
+}
+
+.tv-code-input:focus {
+  box-shadow: 0 0 0 4px var(--yellow);
+}
+
+.tv-card .btn {
+  min-height: 3.4rem;
+  font-size: 1.3rem;
+}
+
+.tv-error {
+  margin: 0;
+  color: var(--red);
+  font-weight: 650;
+  font-size: 1.1rem;
+}
+
+.tv-how {
+  max-width: 36rem;
+  margin: 0;
+  color: var(--text-2);
+  font-size: 1.2rem;
+}
+
+/* ------------------------------------------------------------------ lobby */
+
+.tv-lobby {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 3rem;
+  padding: 3rem 4rem;
+  align-items: center;
+}
+
+.tvl-join {
+  display: grid;
+  gap: 2rem;
+  justify-items: start;
+}
+
+.tv .tv-logo {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.25em;
+  font-size: 4rem;
+}
+
+.tvl-title {
+  font-size: 3.2rem;
+}
+
+.tvl-how {
+  display: flex;
+  align-items: center;
+  gap: 2.6rem;
+}
+
+.tvl-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1.8rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.tvl-steps li {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.tvl-n {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #1d1a2b;
+  border: var(--border);
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+}
+
+.tvl-host {
+  display: block;
+  font-size: 2.1rem;
+  line-height: 1.15;
+  overflow-wrap: break-word;
+}
+
+.tv-room-code {
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
+.tv-room-code span {
+  width: 5rem;
+  height: 6rem;
+  font-size: 4rem;
+  border-radius: 1rem;
+  box-shadow: 0 5px 0 var(--shade);
+}
+
+.tvl-scan {
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+  font-weight: 650;
+  font-size: 1.2rem;
+  color: var(--text-2);
+}
+
+.tv-qr {
+  padding: 0.6rem;
+  border-radius: 1.2rem;
+}
+
+.tv-qr img {
+  width: 13rem;
+  height: 13rem;
+}
+
+.tvl-side {
+  align-self: center;
+  min-height: min(100%, 38rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1.3rem;
+  min-height: 0;
+  padding: 1.8rem;
+  background: var(--surface);
+  border: var(--border);
+  border-radius: 1.6rem;
+  box-shadow: var(--shadow);
+}
+
+.tvl-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.tvl-head h2 {
+  font-size: 2.2rem;
+}
+
+.tvl-list {
+  flex: 1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: min-content;
+  gap: 0.9rem;
+  align-content: start;
+}
+
+.tvl-p {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+  padding: 0.8rem 0.9rem;
+  background: var(--surface-2);
+  border: 2.5px solid var(--line);
+  border-radius: 1rem;
+  font-size: 1.4rem;
+  font-weight: 650;
+  animation: pop-in 0.45s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+.tvl-p .avatar {
+  --size: 3.4rem;
+  border-width: 3px;
+}
+
+.tvl-p.away {
+  opacity: 0.55;
+}
+
+.tvl-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tvl-p .tag {
+  font-size: 0.85rem;
+}
+
+.tvl-p .icon-xs {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.tvl-empty {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--line) 35%, transparent);
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  animation: none;
+}
+
+.tvl-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.tvl-wait {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 650;
+  text-align: center;
+}
+
+.tvl-wait .dots {
+  display: inline-block;
+}
+
+/* ------------------------------------------------------------------ game */
+
+.tv-game {
+  display: grid;
+  grid-template-columns: 18rem minmax(0, 1fr) 20rem;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 1.1rem 1.4rem;
+  padding: 1.1rem 1.5rem 1.5rem;
+}
+
+.tvg-top {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 18rem minmax(0, 1fr) 20rem;
+  align-items: center;
+  gap: 1.4rem;
+  padding: 0.5rem 1.2rem;
+  background: var(--surface);
+  border: var(--border);
+  border-radius: 1.4rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.tvg-round {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.tvg-word .word-label {
+  font-size: 1rem;
+}
+
+.tvg-word .word-display {
+  min-height: 4.2rem;
+}
+
+.tvg-word .word {
+  font-size: calc(3.1rem * var(--wscale));
+  gap: calc(0.5rem * var(--wscale));
+}
+
+.tvg-word .word.mask .ch {
+  border-bottom-width: calc(5px * var(--wscale));
+}
+
+.tvg-word .word-note {
+  font-size: 2rem;
+}
+
+.tv-timer {
+  justify-self: end;
+  width: 4.4rem;
+  height: 4.4rem;
+}
+
+.tv-timer .timer-num {
+  font-size: 1.7rem;
+}
+
+.tvg-scores {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tvg-players {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.6rem;
+}
+
+.tvg-pl {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1.9rem auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.55rem 0.8rem;
+  background: var(--surface);
+  border: 2.5px solid var(--line);
+  border-radius: 1rem;
+  transition: background-color 0.3s;
+}
+
+.tvg-pl .avatar {
+  --size: 2.7rem;
+}
+
+.tvg-rank {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--muted);
+}
+
+.tvg-pl-main {
+  min-width: 0;
+  display: grid;
+}
+
+.tvg-pl-name {
+  font-size: 1.2rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tvg-pl-score {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.tvg-gain {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.tvg-pl.guessed {
+  background: var(--green-soft);
+}
+
+.tvg-pl.drawing {
+  background: var(--yellow-soft);
+}
+
+.tvg-pl.away {
+  opacity: 0.55;
+}
+
+.tvg-status {
+  position: absolute;
+  top: -0.35rem;
+  right: -0.35rem;
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 50%;
+  background: var(--yellow);
+  color: #1d1a2b;
+  border: 2px solid #1d1a2b;
+}
+
+.tvg-status.ok {
+  background: var(--green);
+  color: #fff;
+}
+
+.tvg-status .icon {
+  width: 1rem;
+  height: 1rem;
+  stroke-width: 3;
+}
+
+.tvg-pl.pulse {
+  animation: tv-pulse 0.7s ease;
+}
+
+@keyframes tv-pulse {
+  30% {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 5px var(--green);
+  }
+}
+
+.tvg-stage {
+  container-type: size;
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tvg-canvas-wrap {
+  position: relative;
+  width: min(100cqw, 100cqh * 4 / 3);
+  aspect-ratio: 4 / 3;
+  background: #fff;
+  border: var(--border);
+  border-radius: 1.2rem;
+  box-shadow: 0 6px 0 var(--shade);
+  overflow: hidden;
+}
+
+.tvg-canvas-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.tvg-drawer {
+  position: absolute;
+  top: 0.9rem;
+  left: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 1rem 0.3rem 0.35rem;
+  border-radius: 999px;
+  background: #fff;
+  color: #1d1a2b;
+  border: 2.5px solid #1d1a2b;
+  font-weight: 700;
+  font-size: 1.15rem;
+  box-shadow: 0 3px 0 #1d1a2b;
+}
+
+.tvg-drawer .avatar {
+  --size: 2.1rem;
+  border-color: #1d1a2b;
+}
+
+.tvg-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: color-mix(in srgb, var(--paper) 78%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
+.tvo-card {
+  display: grid;
+  justify-items: center;
+  gap: 0.9rem;
+  width: min(100%, 36rem);
+  padding: 1.8rem 2rem;
+  text-align: center;
+  background: var(--surface);
+  border: var(--border);
+  border-radius: 1.6rem;
+  box-shadow: var(--shadow);
+  animation: pop-in 0.4s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+.tvo-card .avatar {
+  --size: 5.5rem;
+  border-width: 4px;
+}
+
+.tvo-kicker {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tvo-card h2 {
+  font-size: 2.4rem;
+}
+
+.tvo-reveal-word {
+  font-size: 3.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  position: relative;
+  z-index: 0;
+  padding: 0 0.2em;
+}
+
+.tvo-reveal-word::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  bottom: 0.08em;
+  height: 0.4em;
+  background: var(--hl);
+  border-radius: 0.2em;
+  transform: rotate(-1.2deg);
+}
+
+.tvo-badge {
+  padding: 0.25rem 0.9rem;
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.tvo-badge.none {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+/* Reveal: a strip along the bottom of the canvas, the drawing stays visible above it. */
+.tvg-overlay.is-reveal {
+  place-items: end center;
+  padding: 1.2rem;
+  background: linear-gradient(to bottom, transparent 45%, color-mix(in srgb, var(--paper) 55%, transparent));
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.tvo-card.tvo-reveal {
+  width: min(100%, 44rem);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  justify-items: start;
+  gap: 0.4rem 1.6rem;
+  padding: 1rem 1.6rem;
+  text-align: left;
+  animation-name: slide-up;
+}
+
+.tvo-reveal-main {
+  min-width: 0;
+}
+
+.tvo-reveal .tvo-reveal-word {
+  font-size: 3rem;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+
+.tvo-reveal .tvo-reveal-word::after {
+  left: -0.1em;
+  right: -0.1em;
+}
+
+.tvo-reveal-side {
+  display: grid;
+  justify-items: end;
+  gap: 0.5rem;
+  text-align: right;
+}
+
+.tvo-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+  width: 100%;
+}
+
+.tvo-rows li {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  font-size: 1.25rem;
+  font-weight: 650;
+  animation: slide-up 0.35s both;
+}
+
+.tvo-rows .avatar {
+  --size: 2.2rem;
+  border-width: 2.5px;
+}
+
+.tvo-rows .rv-name {
+  flex: 1;
+  text-align: left;
+}
+
+.tvo-rows .rv-pts {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.tvo-foot-line {
+  font-size: 1.15rem;
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.tvg-side {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.tvg-feed {
+  flex: 1;
+  min-height: 0;
+  list-style: none;
+  margin: 0;
+  padding: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  overflow: hidden;
+  background: var(--surface);
+  border: var(--border);
+  border-radius: 1.2rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.tvf {
+  flex: none;
+  font-size: 1.15rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  animation: slide-up 0.3s both;
+}
+
+.tvf b {
+  font-weight: 700;
+}
+
+.tvf-dot {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: var(--pc);
+  border: 2px solid var(--line);
+  vertical-align: 0.05em;
+}
+
+.tvf-correct {
+  padding: 0.3rem 0.7rem;
+  border-radius: 0.7rem;
+  background: var(--green-soft);
+  color: var(--green);
+  font-weight: 700;
+}
+
+.tvf-correct .icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-right: 0.2rem;
+  stroke-width: 3;
+}
+
+.tvf-system {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.tvf-reveal,
+.tvf-round {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.tvf-join {
+  color: var(--green);
+}
+
+.tvg-join {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.7rem;
+  background: var(--surface);
+  border: var(--border);
+  border-radius: 1.2rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.tvg-join .qr-frame {
+  padding: 0.3rem;
+  border-radius: 0.7rem;
+  box-shadow: none;
+  border-width: 2px;
+}
+
+.tvg-join img {
+  width: 5.4rem;
+  height: 5.4rem;
+  display: block;
+}
+
+.tvg-join-text {
+  display: grid;
+  min-width: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.tvg-join-text b {
+  font-size: 1rem;
+  color: var(--text);
+  overflow-wrap: break-word;
+}
+
+.tvg-code {
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+/* ------------------------------------------------------------------ game over */
+
+.tv-over {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  padding: 2rem 3rem 1.4rem;
+}
+
+.tvo-podium-view {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  align-items: center;
+  gap: 3rem;
+  min-height: 0;
+}
+
+.tvo-podium-view:has(.tvo-awards:empty) {
+  grid-template-columns: 1fr;
+}
+
+.tvo-left {
+  display: grid;
+  justify-items: center;
+  gap: 2.4rem;
+  min-width: 0;
+}
+
+.tvo-title {
+  position: relative;
+  z-index: 0;
+  font-size: 4.4rem;
+  padding: 0 0.2em;
+  animation: pop-in 0.5s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+.tvo-title::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  right: 0;
+  bottom: 0.06em;
+  height: 0.42em;
+  background: var(--hl);
+  border-radius: 0.2em;
+  transform: rotate(-1.5deg);
+}
+
+.tvo-podium {
+  display: grid;
+  grid-template-columns: repeat(var(--places, 3), minmax(0, 14rem));
+  align-items: end;
+  gap: 1.2rem;
+  padding: 0 0.6rem;
+  border-bottom: var(--border);
+}
+
+.tvo-pod {
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.tvo-who {
+  display: grid;
+  justify-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  text-align: center;
+  animation: pop-in 0.5s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+.tvo-first .tvo-who {
+  animation-delay: 0.5s;
+}
+
+.tvo-second .tvo-who {
+  animation-delay: 0.25s;
+}
+
+.tvo-who .avatar {
+  --size: 5.4rem;
+  border-width: 4px;
+  box-shadow: var(--shadow-sm);
+}
+
+.tvo-crown {
+  width: 3rem !important;
+  height: 3rem !important;
+  color: var(--yellow);
+  stroke: var(--line);
+  stroke-width: 1.6;
+  margin-bottom: -0.6rem;
+  transform: rotate(-8deg);
+}
+
+.tvo-name {
+  max-width: 100%;
+  font-size: 1.6rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tvo-score {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.tvo-block {
+  width: 100%;
+  display: grid;
+  place-items: start center;
+  padding-top: 0.8rem;
+  border: var(--border);
+  border-bottom: 0;
+  border-radius: 1.2rem 1.2rem 0 0;
+  font-size: 2.4rem;
+  font-weight: 700;
+  color: #1d1a2b;
+  transform-origin: bottom;
+  animation: grow 0.6s cubic-bezier(0.3, 1.3, 0.5, 1) both;
+}
+
+.tvo-first .tvo-block {
+  height: 12rem;
+  background: var(--yellow);
+  font-size: 3rem;
+  animation-delay: 0.3s;
+}
+
+.tvo-second .tvo-block {
+  height: 8.5rem;
+  background: #d8dcef;
+  animation-delay: 0.15s;
+}
+
+.tvo-third .tvo-block {
+  height: 6rem;
+  background: #f5b889;
+}
+
+.tvo-awards {
+  display: grid;
+  gap: 0.8rem;
+  align-content: center;
+  max-width: 38rem;
+}
+
+.tv .award {
+  gap: 0.9rem;
+  padding: 0.8rem 1rem;
+  border-radius: 1.1rem;
+}
+
+.tv .award-icon {
+  width: 3.4rem;
+  height: 3.4rem;
+}
+
+.tv .award-title {
+  font-size: 1.3rem;
+}
+
+.tv .award-who {
+  font-size: 1.1rem;
+}
+
+.tv .award-who .avatar {
+  --size: 1.5rem;
+}
+
+.tv .award-detail {
+  font-size: 0.98rem;
+}
+
+.tvo-show {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 1rem;
+  min-height: 0;
+}
+
+.tvo-show-head {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  font-size: 1.3rem;
+  font-weight: 650;
+  color: var(--text-2);
+}
+
+.tvo-show-head .tv-pill {
+  font-size: 1.3rem;
+  background: var(--yellow);
+  color: #1d1a2b;
+  border-color: #1d1a2b;
+}
+
+.tvo-stage {
+  container-type: size;
+  display: grid;
+  place-items: center;
+  min-height: 0;
+}
+
+.tvo-frame {
+  position: relative;
+  margin: 0;
+  width: min(100cqw, 100cqh * 4 / 3);
+  aspect-ratio: 4 / 3;
+  background: #fff;
+  border: var(--border);
+  border-radius: 1rem;
+  box-shadow: 0 6px 0 var(--shade);
+  animation: pop-in 0.45s cubic-bezier(0.3, 1.4, 0.5, 1) both;
+}
+
+.tvo-frame.is-fav {
+  box-shadow: 0 6px 0 var(--shade), 0 0 0 0.5rem #ffd23f;
+}
+
+.tvo-frame canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: calc(1rem - 3px);
+}
+
+.tvo-frame .fav-ribbon {
+  top: 1.4rem;
+  right: -1.2rem;
+  padding: 0.3rem 1.1rem 0.3rem 0.5rem;
+  font-size: 1.3rem;
+}
+
+.tvo-frame .fav-ribbon svg {
+  width: 2.2rem;
+  height: 2.2rem;
+}
+
+.tvo-cap {
+  display: grid;
+  justify-items: center;
+  gap: 0.3rem;
+}
+
+.tvo-word {
+  font-size: 2.8rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.tvo-by {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 1.35rem;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.tvo-by .avatar {
+  --size: 2rem;
+}
+
+.tvo-likes {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--red);
+  font-weight: 700;
+}
+
+.tvo-likes svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.tvo-foot {
+  margin: 1rem 0 0;
+  text-align: center;
+  font-size: 1.3rem;
+  font-weight: 650;
+  color: var(--text-2);
+}
+
+/* ------------------------------------------------------------------ extras */
+
+.tv-corner {
+  position: fixed;
+  left: 1rem;
+  bottom: 0.8rem;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-direction: row-reverse;
+}
+
+.tv-corner .icon-btn {
+  width: 2.8rem;
+  height: 2.8rem;
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--line) 30%, transparent);
+}
+
+.tv-sound-hint {
+  padding: 0.25rem 0.8rem;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--paper);
+  font-weight: 650;
+  font-size: 0.95rem;
+}
+
+.tv .floater .fe {
+  width: 4.2rem;
+  height: 4.2rem;
+}
+
+.tv .floater .fn {
+  font-size: 1rem;
+  max-width: 10rem;
+  padding: 0 0.6rem;
+}
+
+.tv .conn-banner {
+  font-size: 1.2rem;
+}
+
+/* A portrait or narrow window: stack things instead of squeezing them. */
+@media (max-aspect-ratio: 1 / 1), (max-width: 760px) {
+  body.tv {
+    overflow: auto;
+  }
+
+  html {
+    font-size: clamp(12px, 2.4vw, 24px);
+  }
+
+  .tv-main,
+  .tv-screen {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .tv-lobby {
+    grid-template-columns: 1fr;
+    padding: 2rem 1.4rem;
+  }
+
+  .tvl-how {
+    flex-wrap: wrap;
+  }
+
+  .tv-game {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto auto;
+    padding: 1rem 1rem 4.5rem; /* room for the sound button */
+  }
+
+  .tvg-top {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .tvg-stage {
+    container-type: inline-size;
+  }
+
+  .tvg-canvas-wrap {
+    width: 100%;
+  }
+
+  .tvg-players {
+    grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  }
+
+  .tvg-feed {
+    max-height: 16rem;
+  }
+
+  .tvo-podium {
+    grid-template-columns: repeat(var(--places, 3), minmax(0, 11rem));
+  }
+
+  .tvo-podium-view {
+    grid-template-columns: 1fr;
+  }
+
+  .tvo-frame {
+    width: 100%;
+  }
+
+  .tvo-stage {
+    container-type: inline-size;
+  }
+}

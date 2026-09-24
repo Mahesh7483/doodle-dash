@@ -42,8 +42,12 @@ function playAndCheck(seed) {
   const rnd = mulberry32(seed * 31 + 1);
   room.updateSettings(ids[0], { rounds: 2 });
   if (seed % 2 === 0) room.addBot(ids[0]); // bots chat and guess too
+  // A TV screen watches every game: it must never learn the word before the reveal either.
+  const tv = env.manager.watch(room.code);
+  room.connectWatcher(tv.id);
   room.start(ids[0]);
   let checked = 0;
+  let checkedTv = 0;
   let late = null;
 
   const check = (from) => {
@@ -63,6 +67,7 @@ function playAndCheck(seed) {
           if (it.event === 'chat' && it.data.from === m.pid) continue; // their own message echoed back
           assert.ok(!wordIn(it.data, w), `seed ${seed}: "${w}" leaked to ${m.pid} in ${m.event}: ${JSON.stringify(it.data)}`);
           checked++;
+          if (m.pid === tv.id) checkedTv++;
         }
       }
     }
@@ -113,6 +118,7 @@ function playAndCheck(seed) {
     cursor = sent.length;
   }
   assert.equal(room.phase, 'gameOver');
+  assert.ok(checkedTv > 20, `seed ${seed}: checked ${checkedTv} TV payloads`);
   return checked;
 }
 

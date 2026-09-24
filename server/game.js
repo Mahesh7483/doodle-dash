@@ -38,6 +38,9 @@ const REACTIONS = ['lol', 'fire', 'love', 'wow', 'hmm', 'star'];
 const REACTIONS_PER_2S = 5;
 const LIKES_PER_2S = 8;
 
+// TV / big-screen watchers: they see what a guesser sees (never the word early) but hold no seat.
+const MAX_WATCHERS = 6;
+
 const DEFAULT_TIMING = {
   chooseMs: 15000,
   revealMs: 5000,
@@ -193,6 +196,9 @@ class Room {
     this.notice = null;
     this.emptySince = this.now();
     this.msgSeq = 0;
+    this.watchers = new Set(); // ids of connected TV screens
+    this.publicLog = []; // public chat lines, replayed to a TV when it connects
+    this.banned = new Set(); // tokens of players the host removed
   }
 
   // ---- lookups
@@ -343,9 +349,11 @@ class Room {
       this.turn = null;
       this.endsAt = 0;
       if (this.emptySince == null) this.emptySince = this.now();
+      this.broadcastState(); // only TV screens are left to tell
       return;
     }
-    this.system(why === 'timeout' ? `${p.name} disconnected` : `${p.name} left`, 'leave');
+    const text = { timeout: `${p.name} disconnected`, kicked: `${p.name} was removed by the host` }[why] || `${p.name} left`;
+    this.system(text, 'leave');
     if (this.hostId === pid) this.migrateHost();
     if (this.humansConnected().length === 0 && this.emptySince == null) this.emptySince = this.now();
 
@@ -373,6 +381,56 @@ class Room {
     this.hostId = chosen.id;
     this.system(`${chosen.name} is now the host`, 'system');
     return true;
+  }
+
+  // The host can remove a player (for example someone who joined by mistake). They can't rejoin
+  // this room with the same browser.
+  kick(pid, targetId) {
+    if (pid !== this.hostId) return { error: 'Only the host can remove players.' };
+    const target = this.get(targetId);
+    if (!target) return { error: 'That player already left.' };
+    if (targetId === pid) return { error: "You can't remove yourself. Use Leave instead." };
+    if (target.bot) {
+      this.removePlayer(targetId, 'left');
+      return { ok: true };
+    }
+    this.banned.add(target.token);
+    if (target.connected) this.send(targetId, 'kicked', { code: this.code });
+    this.removePlayer(targetId, 'kicked');
+    return { ok: true };
+  }
+
+  // ---- TV screens (watchers)
+
+  // Reserve a watcher id; call connectWatcher() once messages to that id reach the screen.
+  addWatcher() {
+    if (this.watchers.size >= MAX_WATCHERS) return { error: 'Too many screens are already showing this room.' };
+    const id = `tv-${newId()}`;
+    this.watchers.add(id);
+    return { ok: true, id };
+  }
+
+  connectWatcher(id) {
+    if (!this.watchers.has(id)) return;
+    this.send(id, 'chatHistory', { messages: this.publicLog });
+    this.broadcastState(); // players see that a TV is connected
+    this.sendSync(id);
+  }
+
+  removeWatcher(id) {
+    if (!this.watchers.delete(id)) return;
+    this.broadcastState();
+  }
+
+  toWatchers(event, payload) {
+    for (const id of this.watchers) this.send(id, event, payload);
+  }
+
+  // A chat line everyone may see: goes to the TV screens and their replay log.
+  publicChat(m) {
+    this.publicLog.push(m);
+    if (this.publicLog.length > CHAT_HISTORY) this.publicLog.splice(0, this.publicLog.length - CHAT_HISTORY);
+    this.toWatchers('chat', m);
   }
 
   // ---- lobby
@@ -787,6 +845,7 @@ class Room {
     this.system('Game over!', 'round');
     this.broadcastState();
     for (const p of this.connected()) if (!p.bot) this.send(p.id, 'gallery', this.galleryPayload(p.id));
+    this.toWatchers('gallery', this.galleryPayload(null));
   }
 
   galleryPayload(pid) {
@@ -844,6 +903,7 @@ class Room {
     if (on) this.likes[i].add(pid);
     else this.likes[i].delete(pid);
     for (const q of this.players) if (q.connected && !q.bot) this.send(q.id, 'likes', this.likesFor(q.id));
+    this.toWatchers('likes', this.likesFor(null));
     return { ok: true, count: this.likes[i].size };
   }
 
@@ -869,9 +929,11 @@ class Room {
     if (!p) return { error: 'Not in room.' };
     if (!REACTIONS.includes(emoji)) return { error: 'Unknown reaction.' };
     if (!p.bot && this.rateLimited(p, 'reactTimes', REACTIONS_PER_2S, 2000)) return { error: 'Slow down!' };
+    const payload = { from: p.id, emoji, name: p.name, color: p.color };
     for (const q of this.players) {
-      if (q.connected && !q.bot) this.send(q.id, 'reaction', { from: p.id, emoji, name: p.name, color: p.color });
+      if (q.connected && !q.bot) this.send(q.id, 'reaction', payload);
     }
+    this.toWatchers('reaction', payload);
     return { ok: true };
   }
 
@@ -910,7 +972,9 @@ class Room {
         return { ok: true };
       }
     }
-    for (const q of this.players) this.sendChat(q.id, { ...msg, kind: 'chat' });
+    const id = ++this.msgSeq;
+    for (const q of this.players) this.sendChat(q.id, { ...msg, kind: 'chat' }, id);
+    this.publicChat({ id, ...msg, kind: 'chat' });
     return { ok: true };
   }
 
@@ -935,16 +999,19 @@ class Room {
       t.points[drawer.id] = (t.points[drawer.id] || 0) + dp;
     }
     this.sendChat(p.id, { kind: 'you-correct', text: t.word, points: pts, from: p.id, name: p.name, color: p.color });
+    const correct = { kind: 'correct', from: p.id, name: p.name, color: p.color, text: `${p.name} guessed it!` };
+    const id = ++this.msgSeq;
     for (const q of this.players) {
-      if (q.id !== p.id) this.sendChat(q.id, { kind: 'correct', from: p.id, name: p.name, color: p.color, text: `${p.name} guessed it!` });
+      if (q.id !== p.id) this.sendChat(q.id, correct, id);
     }
+    this.publicChat({ id, ...correct });
     if (!this.checkAllGuessed()) this.broadcastState();
   }
 
   // Every chat line is kept in the recipient's history (even while they're away) and sent
   // live if they're connected.
-  sendChat(pid, msg) {
-    const m = { id: ++this.msgSeq, ...msg };
+  sendChat(pid, msg, id = ++this.msgSeq) {
+    const m = { id, ...msg };
     const p = this.get(pid);
     if (!p || p.bot) return;
     p.history.push(m);
@@ -953,7 +1020,10 @@ class Room {
   }
 
   system(text, kind = 'system') {
-    for (const q of this.players) this.sendChat(q.id, { kind: 'system', sub: kind, text });
+    const id = ++this.msgSeq;
+    const m = { kind: 'system', sub: kind, text };
+    for (const q of this.players) this.sendChat(q.id, m, id);
+    this.publicChat({ id, ...m });
   }
 
   // ---- drawing
@@ -1025,6 +1095,7 @@ class Room {
     for (const q of this.players) {
       if (q.connected && !q.bot && q.id !== pid) this.send(q.id, 'draw', out);
     }
+    this.toWatchers('draw', out);
     return true;
   }
 
@@ -1044,7 +1115,7 @@ class Room {
 
   sendSync(pid) {
     const p = this.get(pid);
-    if (!p || !p.connected) return;
+    if (!this.watchers.has(pid) && (!p || !p.connected)) return;
     if (this.turn && (this.phase === 'drawing' || this.phase === 'reveal')) {
       this.send(pid, 'drawSync', { turnId: this.turn.id, ops: this.turn.ops.map(wireOp) });
     }
@@ -1085,8 +1156,10 @@ class Room {
       phaseMs: this.endsAt ? this.phaseMs : 0,
       serverNow: this.now(),
       notice: this.notice,
+      screens: this.watchers.size,
       turn: null,
     };
+    if (this.watchers.has(pid)) view.watching = true;
     if (this.phase === 'gameOver') view.awards = this.awards || [];
     // Only the host gets the custom word list back, and only while in the lobby.
     if (pid === this.hostId && this.phase === 'lobby') view.customWords = this.customWords.join(', ');
@@ -1123,6 +1196,7 @@ class Room {
     for (const p of this.players) {
       if (p.connected && !p.bot) this.send(p.id, 'state', this.viewFor(p.id));
     }
+    for (const id of this.watchers) this.send(id, 'state', this.viewFor(id));
   }
 
   // ---- clock
@@ -1246,6 +1320,7 @@ class RoomManager {
     if (!validCode(code)) return { error: 'Room codes are 4 letters.' };
     const room = this.rooms.get(code);
     if (!room) return { error: `Room ${code} not found. Check the code?` };
+    if (room.banned.has(token)) return { error: 'The host removed you from this room.' };
     const existing = validToken(token) ? room.byToken(token) : null;
     if (existing) return { room, player: existing, resumed: true };
     const res = room.addPlayer(token, name);
@@ -1256,9 +1331,21 @@ class RoomManager {
   resume(code, token) {
     const room = this.getRoom(code);
     if (!room) return { error: 'That room has closed.' };
+    if (room.banned.has(token)) return { error: 'The host removed you from this room.' };
     const player = validToken(token) ? room.byToken(token) : null;
     if (!player) return { error: 'Your seat expired. Join again?' };
     return { room, player };
+  }
+
+  // A TV screen showing the room. Returns the watcher id to route messages to.
+  watch(code) {
+    code = normalizeCode(code);
+    if (!validCode(code)) return { error: 'Room codes are 4 letters.' };
+    const room = this.rooms.get(code);
+    if (!room) return { error: `Room ${code} not found. Check the code?` };
+    const res = room.addWatcher();
+    if (res.error) return res;
+    return { room, id: res.id };
   }
 
   tick() {
@@ -1267,7 +1354,10 @@ class RoomManager {
       room.tick();
       if (room.humansConnected().length === 0) {
         if (room.emptySince == null) room.emptySince = now;
-        if (now - room.emptySince >= this.timing.roomIdleMs) this.rooms.delete(code);
+        if (now - room.emptySince >= this.timing.roomIdleMs) {
+          room.toWatchers('roomClosed', { code });
+          this.rooms.delete(code);
+        }
       } else {
         room.emptySince = null;
       }
@@ -1298,4 +1388,5 @@ module.exports = {
   CANVAS_H,
   MAX_POINTS_PER_TURN,
   REACTIONS,
+  MAX_WATCHERS,
 };

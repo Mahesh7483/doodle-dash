@@ -441,3 +441,179 @@ test('solo: one phone plays a whole game against a bot', async ({ browser }) => 
   expect(errors).toEqual([]);
   await ctx.close();
 });
+
+// Ink on the TV's canvas (same idea as canvasInfo, for another canvas).
+async function tvInk(page, sel = '#tvg-board') {
+  return page.evaluate((s) => {
+    const c = /** @type {HTMLCanvasElement} */ (document.querySelector(s));
+    const d = c.getContext('2d').getImageData(0, 0, 800, 600).data;
+    let ink = 0;
+    for (let i = 0; i < d.length; i += 4) if (d[i] < 200 || d[i + 1] < 200 || d[i + 2] < 200) ink++;
+    return ink;
+  }, sel);
+}
+
+const turnOf = (page) =>
+  page.evaluate(() => {
+    const v = window.__dd.S.view;
+    return v ? { phase: v.phase, turnId: v.turn ? v.turn.id : null, drawerId: v.turn ? v.turn.drawerId : null, me: v.me } : null;
+  });
+
+test('party mode: a TV screen follows the game; the host removes a player', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const { doodleWords } = require('../server/doodles');
+  const deskCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const leoCtx = await browser.newContext({ ...phoneDevice });
+  const trollCtx = await browser.newContext({ ...phoneDevice });
+  const tvCtx = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+  const host = await deskCtx.newPage();
+  const tv = await tvCtx.newPage();
+  const errors = [];
+  for (const p of [host, tv]) p.on('pageerror', (e) => errors.push(e.message));
+  host.on('dialog', (d) => d.accept());
+
+  await host.goto('/');
+  await host.locator('#name-input').fill('Maya');
+  await host.locator('#create-btn').click();
+  await expect(host.locator('#screen-lobby')).toBeVisible();
+  const code = (await host.locator('#lobby-code').textContent()) || '';
+  await expect(host.locator('#tv-link')).toHaveAttribute('href', `/tv/${code}`);
+
+  // The TV: open /tv and type the code.
+  await tv.goto('/tv');
+  await expect(tv.locator('#tv-connect')).toBeVisible();
+  await tv.locator('#tv-code').fill('zzzz');
+  await tv.locator('#tv-code').press('Enter');
+  await expect(tv.locator('#tv-error')).toContainText('not found');
+  await tv.locator('#tv-code').fill(code.toLowerCase());
+  await tv.locator('#tv-code').press('Enter');
+  await expect(tv.locator('#tv-lobby')).toBeVisible();
+  await expect(tv).toHaveURL(new RegExp(`/tv/${code}$`));
+  await expect(tv.locator('#tvl-code')).toHaveText(code);
+  await expect(tv.locator('#tvl-list')).toContainText('Maya');
+  await expect(host.locator('#tv-on')).toBeVisible();
+
+  // Someone joins by mistake; the host removes them and they can't get back in.
+  const troll = await trollCtx.newPage();
+  await troll.goto(`/r/${code}`);
+  await troll.locator('#name-input').fill('Troll');
+  await troll.locator('#invite-join-btn').click();
+  await expect(troll.locator('#screen-lobby')).toBeVisible();
+  await expect(tv.locator('#tvl-list')).toContainText('Troll');
+  await host.locator('#lobby-players [data-kick]').click();
+  await expect(troll.locator('#screen-home')).toBeVisible();
+  await expect(troll.locator('#toast')).toContainText('removed you');
+  await expect(tv.locator('#tvl-list')).not.toContainText('Troll');
+  await troll.goto(`/r/${code}`);
+  await troll.locator('#name-input').fill('Troll');
+  await troll.locator('#invite-join-btn').click();
+  await expect(troll.locator('#home-error')).toContainText('The host removed you from this room.');
+
+  // Leo joins on a phone, plus a bot.
+  const leo = await leoCtx.newPage();
+  leo.on('pageerror', (e) => errors.push(e.message));
+  await leo.goto(`/r/${code}`);
+  await leo.locator('#name-input').fill('Leo');
+  await leo.locator('#invite-join-btn').click();
+  await expect(leo.locator('#screen-lobby')).toBeVisible();
+  await host.locator('#add-bot-btn').click();
+  await expect(tv.locator('#tvl-list .tvl-p:not(.tvl-empty)')).toHaveCount(3);
+  await expect(tv.locator('#tvl-wait')).toContainText('Waiting for Maya to start');
+  await shot(tv, 'tv-01-lobby');
+  await shot(host, 'desktop-16-lobby-tv-on');
+
+  await host.locator('#set-rounds button', { hasText: '2' }).click();
+  await host.locator('#start-btn').click();
+
+  let last = null;
+  let turns = 0;
+  let shotDrawing = false;
+  const humans = [host, leo];
+  for (let guard = 0; guard < 10; guard++) {
+    await expect
+      .poll(async () => {
+        const s = await turnOf(host);
+        return !!s && (s.phase === 'gameOver' || ((s.phase === 'choosing' || s.phase === 'drawing') && s.turnId !== last));
+      }, { timeout: 60000 })
+      .toBe(true);
+    const s = await turnOf(host);
+    if (s.phase === 'gameOver') break;
+    last = s.turnId;
+    turns++;
+    const leoId = (await turnOf(leo)).me;
+    const drawerPage = s.drawerId === s.me ? host : s.drawerId === leoId ? leo : null;
+    if (turns === 1) {
+      await expect(tv.locator('#tvg-overlay')).toContainText('is picking a word');
+      await shot(tv, 'tv-02-choosing');
+    }
+    if (drawerPage) {
+      await drawerPage.locator('.choice-easy').click();
+      await expect(drawerPage.locator('#toolbar')).toBeVisible();
+      if (drawerPage === host) await drawWithMouse(host);
+      else await drawWithTouch(leo, leoCtx);
+      const word = await drawerPage.evaluate(() => window.__dd.S.view.turn.word);
+      // The TV shows blanks and the drawing, never the word.
+      await expect(tv.locator('#tvg-word .mask')).toBeVisible();
+      expect(await tv.evaluate(() => window.__tv.T.view.turn.word)).toBeNull();
+      await expect.poll(() => tvInk(tv), { message: 'drawing reaches the TV' }).toBeGreaterThan(1500);
+      const other = drawerPage === host ? leo : host;
+      if (drawerPage === host) {
+        await leo.locator('#react-btn').click();
+        await leo.locator('[data-react="fire"]').click();
+        await expect(tv.locator('#float-layer .floater').first()).toBeVisible();
+      }
+      await guess(other, 'hmm');
+      await guess(other, word);
+    } else {
+      // The bot draws a doodle; both people guess it from the words that fit the blanks.
+      await expect.poll(() => tvInk(tv), { timeout: 30000, message: 'bot drawing on the TV' }).toBeGreaterThan(20000);
+      await tv.waitForTimeout(4000); // let the doodle take shape
+      for (const page of humans) {
+        const mask = await page.evaluate(() => window.__dd.S.view.turn && window.__dd.S.view.turn.mask);
+        if (!mask) continue;
+        const fits = (w) => w.length === mask.length && [...w].every((ch, i) => mask[i] === null || mask[i] === ch);
+        const before = await page.locator('#chat-log .msg-you-correct').count();
+        for (const w of doodleWords().filter(fits)) {
+          await guess(page, w);
+          await page.waitForTimeout(400);
+          if ((await page.locator('#chat-log .msg-you-correct').count()) > before) break;
+        }
+        if (page === host && !shotDrawing) {
+          shotDrawing = true;
+          await shot(tv, 'tv-03-drawing');
+        }
+      }
+    }
+    if (turns === 1) {
+      await expect(tv.locator('#tvg-overlay')).toContainText('The word was', { timeout: 40000 });
+      await shot(tv, 'tv-04-reveal');
+    }
+    await expect
+      .poll(async () => {
+        const n = await turnOf(host);
+        return n.phase === 'reveal' || n.phase === 'gameOver' || n.turnId !== last;
+      }, { timeout: 60000 })
+      .toBe(true);
+  }
+  expect(turns).toBe(6);
+
+  // Game over on the TV: podium and awards, then the gallery slideshow.
+  await expect(tv.locator('#tv-over')).toBeVisible({ timeout: 30000 });
+  await expect(tv.locator('#tvo-title')).toContainText(/wins!|tie/);
+  await expect(tv.locator('#tvo-awards .award').first()).toBeVisible();
+  // Leo likes a drawing on their phone; the TV crowns the crowd favourite.
+  await leo.locator('#to-gallery-btn').click();
+  await leo.locator('.like-btn:not([disabled])').first().click();
+  await expect(tv.locator('#tvo-awards .award-crowd')).toBeVisible();
+  await shot(tv, 'tv-05-podium');
+  await expect(tv.locator('#tvo-show')).toBeVisible({ timeout: 20000 });
+  await expect.poll(() => tvInk(tv, '#tvo-canvas'), { timeout: 15000 }).toBeGreaterThan(1500);
+  await tv.waitForTimeout(2500);
+  await shot(tv, 'tv-06-slideshow');
+
+  // Play again: the TV goes back to the lobby.
+  await host.locator('#screen-podium [data-play-again]').click();
+  await expect(tv.locator('#tv-lobby')).toBeVisible();
+  expect(errors).toEqual([]);
+  for (const c of [deskCtx, leoCtx, trollCtx, tvCtx]) await c.close();
+});

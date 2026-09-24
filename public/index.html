@@ -46,6 +46,7 @@
       <symbol id="i-qr" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2"/></symbol>
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
       <symbol id="i-play" viewBox="0 0 24 24"><path d="M7.5 4.5l11.5 7.5-11.5 7.5z" fill="currentColor"/></symbol>
+      <symbol id="i-tv" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="12.5" rx="2"/><path d="M8 21h8M12 17.5V21M8.5 2.5L12 5l3.5-2.5"/></symbol>
       <symbol id="i-poster" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M3.5 12h17M12 3.5v17"/></symbol>
     </defs>
   </svg>
@@ -124,6 +125,10 @@
           <div class="share-row">
             <button id="share-btn" class="btn btn-secondary" type="button"><svg class="icon"><use href="#i-share"/></svg> Share invite</button>
             <button id="copy-btn" class="btn btn-secondary" type="button"><svg class="icon"><use href="#i-copy"/></svg> Copy link</button>
+          </div>
+          <div class="tv-row">
+            <a id="tv-link" class="tv-link" href="/tv" target="_blank" rel="noopener"><svg class="icon icon-sm"><use href="#i-tv"/></svg> Show it on a TV or laptop</a>
+            <span id="tv-on" class="pill pill-tv" hidden><span class="live-dot"></span>TV on</span>
           </div>
         </div>
 
@@ -335,10 +340,11 @@
         </li>
         <li>
           <h3>End.</h3>
-          <p>Podium (top 3), then the <b>Gallery</b>: every drawing of the game replays stroke-by-stroke with its word and artist; any drawing can be saved as PNG. “Play again” returns everyone to the lobby in the same room with scores reset.</p>
+          <p>Podium (top 3) with fun awards, then the <b>Gallery</b>: every drawing of the game replays stroke-by-stroke with its word and artist. Tap ♥ on your favourites (the most-loved one is the <b>Crowd favourite</b>), save any drawing as a PNG, or save the whole gallery as one poster. “Play again” returns everyone to the lobby in the same room with scores reset.</p>
         </li>
       </ol>
       <p class="rules-tip">Playing alone? The host can tap <b>Add a bot</b> in the lobby. Bots draw, guess and chat like players.</p>
+      <p class="rules-tip">Playing in one room? Open <code>/tv</code> on a TV or laptop and type the room code: the big screen shows the drawing, the scores and the gallery while everyone plays on their phones.</p>
       <p class="rules-tip">Tip: if your phone locks or the page reloads, just open it again — you keep your seat and score for 60 seconds.</p>
     </div>
   </dialog>

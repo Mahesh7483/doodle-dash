@@ -102,6 +102,13 @@ function createServer(options = {}) {
   app.get('/index.html', sendIndex);
   app.get('/r/:code', sendIndex);
 
+  // The TV / big-screen view of a room.
+  const tvHtml = fs.readFileSync(path.join(PUBLIC_DIR, 'tv.html'), 'utf8');
+  const sendTv = (req, res) => res.set('Cache-Control', 'no-cache').type('html').send(tvHtml);
+  app.get('/tv', sendTv);
+  app.get('/tv/:code', sendTv);
+  app.get('/tv.html', sendTv);
+
   app.use(
     '/fonts',
     express.static(path.join(PUBLIC_DIR, 'fonts'), { maxAge: '30d', immutable: true })
@@ -120,6 +127,7 @@ function createServer(options = {}) {
   io.on('connection', (socket) => {
     socket.data.pid = null;
     socket.data.code = null;
+    socket.data.watch = null; // { code, id } when this socket is a TV screen
     let createTimes = [];
     let joinTimes = [];
 
@@ -144,7 +152,17 @@ function createServer(options = {}) {
       socket.data.code = null;
     };
 
+    const unwatch = () => {
+      const w = socket.data.watch;
+      if (!w) return;
+      socket.data.watch = null;
+      if (sockets.get(w.id) === socket) sockets.delete(w.id);
+      const room = manager.getRoom(w.code);
+      if (room) room.removeWatcher(w.id);
+    };
+
     const bind = (room, player) => {
+      unwatch();
       const cur = current();
       if (cur && cur.pid !== player.id) detach();
       const prev = sockets.get(player.id);
@@ -197,7 +215,37 @@ function createServer(options = {}) {
 
     socket.on('room:leave', (ack) => {
       detach();
+      unwatch();
       reply(ack, { ok: true });
+    });
+
+    socket.on('room:watch', (data, ack) => {
+      const now = Date.now();
+      joinTimes = joinTimes.filter((t) => now - t < 60000);
+      if (joinTimes.length >= 20) return reply(ack, { error: 'Too many tries — wait a minute and check the code.' });
+      joinTimes.push(now);
+      const res = manager.watch((data || {}).code);
+      if (res.error) return reply(ack, { error: res.error });
+      detach();
+      unwatch();
+      sockets.set(res.id, socket);
+      socket.data.watch = { code: res.room.code, id: res.id };
+      reply(ack, { ok: true, code: res.room.code, id: res.id });
+      res.room.connectWatcher(res.id);
+    });
+
+    socket.on('kick', (targetId, ack) => {
+      const cur = current();
+      if (!cur) return reply(ack, { error: 'Not in a room.' });
+      const target = String(targetId);
+      const res = cur.room.kick(cur.pid, target);
+      const s = res.ok ? sockets.get(target) : null;
+      if (s && s !== socket) {
+        sockets.delete(target);
+        s.data.pid = null;
+        s.data.code = null;
+      }
+      reply(ack, res);
     });
 
     socket.on('settings', (patch, ack) => {
@@ -260,6 +308,7 @@ function createServer(options = {}) {
     });
 
     socket.on('disconnect', () => {
+      unwatch();
       const cur = current();
       if (!cur) return;
       sockets.delete(cur.pid);

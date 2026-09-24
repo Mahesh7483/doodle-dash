@@ -1,6 +1,7 @@
 import { Board, DrawInput, PALETTE, COLOR_NAMES, replay, exportPng, exportPoster } from './canvas.js';
 import { sfx, isMuted, setMuted } from './sound.js';
 import { STICKERS, STICKER_IDS, REACT_ICON, AWARD_ICONS } from './stickers.js';
+import { syncCards } from './ui.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -216,6 +217,14 @@ socket.on('drawLimit', ({ message }) => toast(message));
 socket.on('reaction', ({ from, emoji, name, color }) => {
   if (S.view && from === S.view.me) return; // already shown when tapped
   floatReaction(emoji, name, color);
+});
+socket.on('kicked', () => {
+  S.code = null;
+  S.view = null;
+  S.lastGallery = null;
+  forgetRoom();
+  showHome(null);
+  toast('The host removed you from the room.');
 });
 socket.on('replaced', () => {
   S.code = null;
@@ -490,13 +499,17 @@ function renderLobby() {
     if (p.id === v.me) tags.push('<span class="tag tag-you">you</span>');
     if (p.bot) tags.push('<span class="tag tag-bot">bot</span>');
     if (!p.connected) tags.push('<span class="tag tag-away">reconnecting…</span>');
-    const remove = p.bot && host ? `<button type="button" class="lp-remove" data-remove-bot="${esc(p.id)}" aria-label="Remove ${esc(p.name)}"><svg class="icon icon-sm"><use href="#i-close"/></svg></button>` : '';
+    let remove = '';
+    if (host && p.bot) remove = `<button type="button" class="lp-remove" data-remove-bot="${esc(p.id)}" aria-label="Remove ${esc(p.name)}"><svg class="icon icon-sm"><use href="#i-close"/></svg></button>`;
+    else if (host && p.id !== v.me) remove = `<button type="button" class="lp-remove" data-kick="${esc(p.id)}" data-name="${esc(p.name)}" aria-label="Remove ${esc(p.name)} from the room"><svg class="icon icon-sm"><use href="#i-close"/></svg></button>`;
     return `<li class="lp ${p.connected ? '' : 'away'} ${p.bot ? 'lp-bot' : ''}">${avatar(p)}<span class="lp-name">${esc(p.name)}</span><span class="lp-tags">${tags.join('')}</span>${remove}</li>`;
   });
   const slots = Math.min(MAX_PLAYERS, Math.max(4, v.players.length + 1)) - v.players.length;
   for (let i = 0; i < slots; i++) items.push('<li class="lp lp-empty"><span class="avatar avatar-empty"></span><span class="lp-name">Waiting for a friend…</span></li>');
   $('#lobby-players').innerHTML = items.join('');
   $('#add-bot-btn').hidden = !host || v.players.length >= MAX_PLAYERS;
+  $('#tv-link').href = `/tv/${v.code}`;
+  $('#tv-on').hidden = !v.screens;
   $('#solo-hint').hidden = !(host && v.players.length === 1);
 
   // Settings
@@ -580,9 +593,15 @@ $('#add-bot-btn').addEventListener('click', async () => {
 });
 $('#lobby-players').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-remove-bot]');
-  if (!b) return;
-  const res = await emit('bot:remove', b.dataset.removeBot);
-  if (res.error) toast(res.error);
+  const k = e.target.closest('[data-kick]');
+  if (b) {
+    const res = await emit('bot:remove', b.dataset.removeBot);
+    if (res.error) toast(res.error);
+  } else if (k) {
+    if (!confirm(`Remove ${k.dataset.name} from the room? They won't be able to rejoin.`)) return;
+    const res = await emit('kick', k.dataset.kick);
+    if (res.error) toast(res.error);
+  }
 });
 
 $('#start-btn').addEventListener('click', async () => {
@@ -604,6 +623,15 @@ $('#share-btn').addEventListener('click', async () => {
 });
 $('#copy-btn').addEventListener('click', () => copyText(shareUrl()));
 $('#qr-btn').addEventListener('click', () => $('#qr-dialog').showModal());
+// On a phone, opening the TV page right here isn't useful: explain what to open on the big screen.
+$('#tv-link').addEventListener('click', async (e) => {
+  if (!matchMedia('(pointer: coarse)').matches) return;
+  e.preventDefault();
+  try {
+    await navigator.clipboard.writeText(`${location.origin}/tv/${S.code}`);
+  } catch (_) { /* the instructions are enough */ }
+  toast(`On the TV or laptop, open ${location.host}/tv and type ${S.code}`, 6000);
+});
 $('#last-gallery-btn').addEventListener('click', () => {
   S.viewingLastGallery = true;
   showScreen('gallery');
@@ -1221,13 +1249,14 @@ function renderAwards() {
   const wrap = $('#awards-wrap');
   if (!v || v.phase !== 'gameOver') {
     wrap.hidden = true;
+    $('#awards').innerHTML = ''; // next game's cards pop in fresh
     return;
   }
   const drawings = S.gallery || [];
   const { counts } = S.likes;
   const fav = favouriteIndex(counts || []);
   const cards = awards.map(
-    (a, k) => `<div class="award" style="--delay:${0.9 + k * 0.12}s">
+    (a, k) => `<div class="award" data-key="${a.id}" style="--delay:${0.9 + k * 0.12}s">
       <span class="award-icon">${AWARD_ICONS[a.id] || ''}</span>
       <div class="award-body"><div class="award-title">${esc(a.title)}</div>
         <div class="award-who">${avatar({ name: a.name, color: a.color, bot: a.bot }, 'avatar-xs')} ${esc(a.name)}</div>
@@ -1236,7 +1265,7 @@ function renderAwards() {
   );
   if (drawings.length) {
     const d = drawings[fav];
-    cards.push(`<div class="award award-crowd" style="--delay:${0.9 + awards.length * 0.12}s">
+    cards.push(`<div class="award award-crowd" data-key="crowd" style="--delay:${0.9 + awards.length * 0.12}s">
       <span class="award-icon">${AWARD_ICONS.crowd}</span>
       <div class="award-body"><div class="award-title">Crowd favourite</div>
         ${
@@ -1248,7 +1277,8 @@ function renderAwards() {
     </div>`);
   }
   wrap.hidden = !cards.length;
-  $('#awards').innerHTML = cards.join('');
+  // In place, so likes coming in don't replay every card's pop-in.
+  syncCards($('#awards'), cards.map((html) => ({ key: /data-key="([^"]+)"/.exec(html)[1], html })));
 }
 
 function replayDuration(d) {
@@ -1527,7 +1557,7 @@ function esc(s) {
 }
 
 let toastTimer = null;
-function toast(msg) {
+function toast(msg, ms = 2600) {
   const el = $('#toast');
   el.textContent = msg;
   el.hidden = false;
@@ -1538,7 +1568,7 @@ function toast(msg) {
   toastTimer = setTimeout(() => {
     el.classList.remove('show');
     setTimeout(() => (el.hidden = true), 250);
-  }, 2600);
+  }, ms);
 }
 
 let connTimer = null;

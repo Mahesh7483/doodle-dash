@@ -700,3 +700,108 @@ test('gallery likes: after the game only, not your own drawing, live counts for 
   assert.ok(Array.isArray(g.awards));
   assert.equal(g.likes.counts.length, 4);
 });
+
+test('TV screen: sees what a guesser sees, public chat only, and holds no seat', () => {
+  const env = setup({ players: 3 });
+  const { room, ids, sent, manager } = env;
+  room.chat(ids[1], 'hello before the TV');
+  const tv = manager.watch(room.code.toLowerCase());
+  assert.ok(tv.id);
+  sent.length = 0;
+  room.connectWatcher(tv.id);
+  const history = sent.find((m) => m.pid === tv.id && m.event === 'chatHistory').data.messages;
+  assert.ok(history.some((m) => m.text === 'hello before the TV'), 'gets the recent public chat');
+  assert.equal(env.lastState(tv.id).watching, true);
+  assert.equal(env.lastState(ids[0]).screens, 1, 'players see that a TV is connected');
+  assert.equal(room.players.length, 3, 'a TV is not a player');
+  assert.equal(env.lastState(tv.id).customWords, undefined);
+
+  const w = startAndChoose(env, 'medium');
+  const st = env.lastState(tv.id);
+  assert.equal(st.turn.word, null);
+  assert.equal(st.turn.choices, null);
+  assert.equal(st.turn.mask.length, Array.from(w).length);
+
+  sent.length = 0;
+  const drawer = room.turn.drawerId;
+  const guessers = ids.filter((id) => id !== drawer);
+  room.draw(drawer, { t: 'b', id: 1, c: 0, s: 10, p: [10, 10, 20, 20] });
+  env.advance(1100); // chat rate limit
+  room.chat(guessers[0], 'a wrong guess');
+  room.chat(guessers[0], `is it ${w}?`); // contains the word: only the sender sees it
+  room.chat(guessers[0], w); // correct
+  env.advance(1100);
+  room.chat(guessers[0], 'secret chat after guessing'); // private channel
+  room.chat(drawer, 'drawer hint'); // private channel
+  room.react(guessers[1], 'fire');
+  const toTv = sent.filter((m) => m.pid === tv.id);
+  assert.deepEqual(toTv.find((m) => m.event === 'draw').data, { t: 'b', id: 1, c: 0, s: 10, p: [10, 10, 20, 20] });
+  const chats = toTv.filter((m) => m.event === 'chat').map((m) => m.data);
+  assert.deepEqual(chats.map((m) => m.kind), ['chat', 'correct']);
+  assert.equal(chats[0].text, 'a wrong guess');
+  assert.ok(!JSON.stringify(toTv).toLowerCase().includes(w.toLowerCase()), 'the word never reaches the TV mid-turn');
+  assert.equal(toTv.find((m) => m.event === 'reaction').data.emoji, 'fire');
+
+  // A TV that connects mid-turn gets the drawing so far.
+  const tv2 = manager.watch(room.code);
+  sent.length = 0;
+  room.connectWatcher(tv2.id);
+  assert.equal(sent.find((m) => m.pid === tv2.id && m.event === 'drawSync').data.ops.length, 1);
+
+  // At the reveal the TV sees the word, and at the end the gallery.
+  env.run(80000);
+  assert.equal(env.lastState(tv.id).turn.word, w);
+  while (room.phase !== 'gameOver') env.run(90000, 1000);
+  const gallery = sent.filter((m) => m.pid === tv.id && m.event === 'gallery').at(-1).data;
+  assert.ok(gallery.drawings.length >= 1);
+  assert.deepEqual(gallery.likes.mine, []);
+  const fan = ids.find((id) => id !== room.gallery[0].drawerId);
+  assert.ok(room.like(fan, 0).ok);
+  assert.equal(sent.filter((m) => m.pid === tv.id && m.event === 'likes').at(-1).data.counts[0], 1);
+
+  room.removeWatcher(tv.id);
+  room.removeWatcher(tv2.id);
+  assert.equal(env.lastState(ids[0]).screens, 0);
+  assert.equal(manager.watch('ZZZZ').error, 'Room ZZZZ not found. Check the code?');
+});
+
+test('TV screens: limited per room, and they alone do not keep a room alive', () => {
+  const env = setup({ players: 1, timing: { roomIdleMs: 1000 } });
+  const { room, ids, manager, sent } = env;
+  const tvs = [];
+  for (let i = 0; i < 6; i++) tvs.push(manager.watch(room.code).id);
+  assert.match(manager.watch(room.code).error, /Too many screens/);
+  room.leave(ids[0]);
+  env.run(1500);
+  assert.equal(manager.getRoom(room.code), null);
+  assert.ok(sent.some((m) => m.pid === tvs[0] && m.event === 'roomClosed'));
+});
+
+test('the host can remove a player, who then cannot rejoin', () => {
+  const env = setup({ players: 3 });
+  const { room, ids, sent, manager } = env;
+  assert.equal(room.kick(ids[1], ids[2]).error, 'Only the host can remove players.');
+  assert.match(room.kick(ids[0], ids[0]).error, /yourself/);
+  sent.length = 0;
+  assert.ok(room.kick(ids[0], ids[2]).ok);
+  assert.ok(sent.some((m) => m.pid === ids[2] && m.event === 'kicked'));
+  assert.equal(room.players.length, 2);
+  assert.ok(env.chats(ids[1]).some((m) => m.text === 'Player 2 was removed by the host'));
+  assert.equal(manager.join(room.code, 'token-player-2', 'Again').error, 'The host removed you from this room.');
+  assert.equal(manager.resume(room.code, 'token-player-2').error, 'The host removed you from this room.');
+  assert.ok(manager.join(room.code, 'token-someone-new', 'New').player, 'others can still join');
+
+  // Mid-game: removing the drawer skips their turn.
+  const env2 = setup({ players: 3 });
+  env2.room.start(env2.ids[0]);
+  const drawer = env2.room.turn.drawerId;
+  const target = drawer === env2.ids[0] ? env2.ids[1] : drawer;
+  if (drawer !== env2.ids[0]) {
+    env2.room.kick(env2.ids[0], target);
+    assert.equal(env2.room.phase, 'reveal');
+  }
+  // Removing a bot works like the bot's remove button.
+  const bot = env.room.addBot(ids[0]);
+  assert.ok(env.room.kick(ids[0], bot.id).ok);
+  assert.equal(env.room.get(bot.id), null);
+});
