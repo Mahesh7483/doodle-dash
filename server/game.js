@@ -38,6 +38,13 @@ const REACTIONS = ['lol', 'fire', 'love', 'wow', 'hmm', 'star'];
 const REACTIONS_PER_2S = 5;
 const LIKES_PER_2S = 8;
 
+// Drawn avatars: small drawings on a 120x120 grid, [colour, size, x0, y0, x1, y1, ...] per stroke.
+const AVATAR_GRID = 120;
+const AVATAR_SIZES = [4, 8, 14];
+const AVATAR_MAX_STROKES = 60;
+const AVATAR_MAX_POINTS = 2400;
+const AVATAR_KEEP = 40; // avatars remembered per room (so gallery credits keep faces after someone leaves)
+
 // TV / big-screen watchers: they see what a guesser sees (never the word early) but hold no seat.
 const MAX_WATCHERS = 6;
 
@@ -199,6 +206,7 @@ class Room {
     this.watchers = new Set(); // ids of connected TV screens
     this.publicLog = []; // public chat lines, replayed to a TV when it connects
     this.banned = new Set(); // tokens of players the host removed
+    this.avatars = new Map(); // player id -> { av, data }, kept after they leave
   }
 
   // ---- lookups
@@ -312,6 +320,7 @@ class Room {
     p.connected = true;
     p.disconnectedAt = null;
     this.emptySince = null;
+    this.send(pid, 'avatars', this.avatarsPayload());
     if (p.isNew) {
       p.isNew = false;
       this.system(`${p.name} joined`, 'join');
@@ -412,6 +421,7 @@ class Room {
 
   connectWatcher(id) {
     if (!this.watchers.has(id)) return;
+    this.send(id, 'avatars', this.avatarsPayload());
     this.send(id, 'chatHistory', { messages: this.publicLog });
     this.broadcastState(); // players see that a TV is connected
     this.sendSync(id);
@@ -431,6 +441,31 @@ class Room {
     this.publicLog.push(m);
     if (this.publicLog.length > CHAT_HISTORY) this.publicLog.splice(0, this.publicLog.length - CHAT_HISTORY);
     this.toWatchers('chat', m);
+  }
+
+  // ---- drawn avatars
+
+  avatarsPayload() {
+    return { list: [...this.avatars].map(([id, a]) => ({ id, av: a.av, data: a.data })) };
+  }
+
+  // Only in the lobby or after the game, so nobody can draw the word into their avatar mid-turn.
+  setAvatar(pid, data) {
+    const p = this.get(pid);
+    if (!p || p.bot) return { error: 'Not in room.' };
+    if (this.phase !== 'lobby' && this.phase !== 'gameOver') return { error: 'You can draw your avatar in the lobby.' };
+    if (this.rateLimited(p, 'avatarTimes', 3, 2000)) return { error: 'Slow down!' };
+    const clean = sanitizeAvatar(data);
+    if (clean === undefined) return { error: 'That drawing is too big.' };
+    p.av = (p.av || 0) + 1;
+    this.avatars.delete(pid);
+    this.avatars.set(pid, { av: p.av, data: clean });
+    while (this.avatars.size > AVATAR_KEEP) this.avatars.delete(this.avatars.keys().next().value);
+    const msg = { id: pid, av: p.av, data: clean };
+    for (const q of this.players) if (q.connected && !q.bot) this.send(q.id, 'avatar', msg);
+    this.toWatchers('avatar', msg);
+    this.broadcastState();
+    return { ok: true, av: p.av };
   }
 
   // ---- lobby
@@ -1151,6 +1186,7 @@ class Room {
         connected: p.connected,
         guessed: p.guessed,
         bot: !!p.bot,
+        av: p.av || 0,
       })),
       endsAt: this.endsAt,
       phaseMs: this.endsAt ? this.phaseMs : 0,
@@ -1262,6 +1298,30 @@ function sanitizePoints(p) {
     out[i + 1] = Math.max(0, Math.min(CANVAS_H - 1, Math.round(y)));
   }
   return out;
+}
+
+// Returns the cleaned avatar, null for "no avatar", or undefined if it isn't acceptable.
+function sanitizeAvatar(data) {
+  if (data === null) return null;
+  if (!Array.isArray(data) || data.length > AVATAR_MAX_STROKES) return undefined;
+  const out = [];
+  let points = 0;
+  for (const s of data) {
+    if (!Array.isArray(s) || s.length < 4 || s.length % 2 !== 0) return undefined;
+    const c = toInt(s[0]);
+    const size = toInt(s[1]);
+    if (c == null || c < 0 || c >= PALETTE_SIZE || !AVATAR_SIZES.includes(size)) return undefined;
+    points += (s.length - 2) / 2;
+    if (points > AVATAR_MAX_POINTS) return undefined;
+    const stroke = [c, size];
+    for (let i = 2; i < s.length; i++) {
+      const v = toInt(s[i]);
+      if (v == null) return undefined;
+      stroke.push(Math.max(0, Math.min(AVATAR_GRID - 1, v)));
+    }
+    out.push(stroke);
+  }
+  return out.length ? out : null;
 }
 
 function findOpenStroke(ops, id) {
@@ -1389,4 +1449,6 @@ module.exports = {
   MAX_POINTS_PER_TURN,
   REACTIONS,
   MAX_WATCHERS,
+  AVATAR_SIZES,
+  sanitizeAvatar,
 };

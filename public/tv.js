@@ -6,6 +6,7 @@ import { Board, replay } from './canvas.js';
 import { sfx, isMuted, setMuted } from './sound.js';
 import { STICKERS, AWARD_ICONS } from './stickers.js';
 import { syncCards } from './ui.js';
+import { setAvatars, setAvatar } from './avatar.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -73,6 +74,8 @@ socket.on('disconnect', () => {
 });
 
 socket.on('state', onState);
+socket.on('avatars', ({ list }) => setAvatars(list));
+socket.on('avatar', (a) => setAvatar(a));
 socket.on('chat', (m) => addFeed(m, true));
 socket.on('chatHistory', ({ messages }) => {
   $('#tvg-feed').innerHTML = '';
@@ -474,7 +477,7 @@ function renderAwards() {
     (a, k) => `<div class="award" data-key="${a.id}" style="--delay:${0.9 + k * 0.12}s">
       <span class="award-icon">${AWARD_ICONS[a.id] || ''}</span>
       <div class="award-body"><div class="award-title">${esc(a.title)}</div>
-        <div class="award-who">${avatar({ name: a.name, color: a.color, bot: a.bot })} ${esc(a.name)}</div>
+        <div class="award-who">${avatar({ id: a.playerId, name: a.name, color: a.color, bot: a.bot })} ${esc(a.name)}</div>
         <div class="award-detail">${esc(a.detail)}</div></div>
     </div>`
   );
@@ -483,7 +486,7 @@ function renderAwards() {
     cards.push(`<div class="award award-crowd" data-key="crowd" style="--delay:${0.9 + awards.length * 0.12}s">
       <span class="award-icon">${AWARD_ICONS.crowd}</span>
       <div class="award-body"><div class="award-title">Crowd favourite</div>
-        <div class="award-who">${avatar({ name: d.drawerName, color: d.drawerColor, bot: d.drawerBot })} ${esc(d.drawerName)}</div>
+        <div class="award-who">${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot })} ${esc(d.drawerName)}</div>
         <div class="award-detail">“${esc(d.word)}” · ${counts[fav]} like${counts[fav] === 1 ? '' : 's'}</div></div>
     </div>`);
   }
@@ -542,7 +545,7 @@ function updateSlideLikes() {
   const counts = T.likes.counts || [];
   const n = counts[T.slide] || 0;
   const fav = favouriteIndex(counts) === T.slide;
-  $('#tvo-by').innerHTML = `${avatar({ name: d.drawerName, color: d.drawerColor, bot: d.drawerBot })} drawn by ${esc(d.drawerName)}${
+  $('#tvo-by').innerHTML = `${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot })} drawn by ${esc(d.drawerName)}${
     n ? ` · <span class="tvo-likes">${STICKERS.love.svg}${n}</span>` : ''
   }`;
   const ribbon = $('#tvo-fav');
@@ -643,9 +646,11 @@ updateSound();
 // ---------------------------------------------------------------------------
 // Helpers
 
+// A drawn avatar shows through the av-<id> class as soon as it's known (see avatar.js).
 function avatar(p, cls = '') {
   const initial = p.bot ? '🤖' : esc([...(p.name || '?').trim()][0] || '?').toUpperCase();
-  return `<span class="avatar ${cls}${p.bot ? ' avatar-bot' : ''}" style="--pc:${esc(p.color || '#999')}" aria-hidden="true">${initial}</span>`;
+  const art = !p.bot && p.id && /^[A-Za-z0-9_-]+$/.test(p.id) ? ` av-${p.id}` : '';
+  return `<span class="avatar ${cls}${p.bot ? ' avatar-bot' : ''}${art}" style="--pc:${esc(p.color || '#999')}" aria-hidden="true">${initial}</span>`;
 }
 
 function esc(s) {

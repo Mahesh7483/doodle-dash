@@ -349,6 +349,30 @@
     </div>
   </dialog>
 
+  <dialog id="avatar-dialog" class="sheet sheet-avatar" aria-labelledby="avatar-title">
+    <div class="sheet-head">
+      <h2 id="avatar-title">Draw yourself</h2>
+      <button class="icon-btn" type="button" data-close aria-label="Close"><svg class="icon"><use href="#i-close"/></svg></button>
+    </div>
+    <div class="sheet-body av-editor">
+      <div id="av-pad-wrap" class="av-pad-wrap"><canvas id="av-pad" aria-label="Avatar drawing pad"></canvas></div>
+      <div id="av-palette" class="palette av-palette" role="radiogroup" aria-label="Colour"></div>
+      <div class="av-tools">
+        <div class="tool-group" role="radiogroup" aria-label="Brush size">
+          <button class="tool size" type="button" data-av-size="0" aria-label="Thin"><span class="dot" style="--d:5px"></span></button>
+          <button class="tool size" type="button" data-av-size="1" aria-label="Medium"><span class="dot" style="--d:10px"></span></button>
+          <button class="tool size" type="button" data-av-size="2" aria-label="Thick"><span class="dot" style="--d:17px"></span></button>
+        </div>
+        <div class="tool-group">
+          <button id="av-undo" class="tool" type="button" aria-label="Undo"><svg class="icon"><use href="#i-undo"/></svg></button>
+          <button id="av-clear" class="tool" type="button" aria-label="Start over"><svg class="icon"><use href="#i-trash"/></svg></button>
+        </div>
+      </div>
+      <p class="av-hint">A face, a cat, a potato: anything! It shows next to your name, on the TV and in the gallery, and it's saved for your next game.</p>
+      <button id="av-save" class="btn btn-primary btn-lg btn-block" type="button">Save my avatar</button>
+    </div>
+  </dialog>
+
   <dialog id="qr-dialog" class="sheet sheet-qr" aria-label="QR code">
     <div class="sheet-head">
       <h2>Scan to join <span id="qr-dialog-code"></span></h2>

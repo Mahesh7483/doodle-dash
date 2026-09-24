@@ -2,6 +2,7 @@ import { Board, DrawInput, PALETTE, COLOR_NAMES, replay, exportPng, exportPoster
 import { sfx, isMuted, setMuted } from './sound.js';
 import { STICKERS, STICKER_IDS, REACT_ICON, AWARD_ICONS } from './stickers.js';
 import { syncCards } from './ui.js';
+import { AvatarPad, setAvatars, setAvatar } from './avatar.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -189,6 +190,8 @@ socket.io.on('reconnect_attempt', () => {
 });
 
 socket.on('state', onState);
+socket.on('avatars', ({ list }) => setAvatars(list));
+socket.on('avatar', (a) => setAvatar(a));
 socket.on('chat', (m) => renderChat(m, true));
 socket.on('chatHistory', ({ messages }) => {
   chatLog.innerHTML = '';
@@ -413,6 +416,7 @@ function onState(v) {
   }
   if (prev && prev.phase === 'lobby' && v.phase === 'lobby' && v.players.length > prev.players.length) sfx.join();
   if (prev && me && prev.hostId !== v.hostId && v.hostId === v.me) toast('You are now the host.');
+  autoAvatar(v, me);
   hideConn();
   render();
 }
@@ -502,7 +506,11 @@ function renderLobby() {
     let remove = '';
     if (host && p.bot) remove = `<button type="button" class="lp-remove" data-remove-bot="${esc(p.id)}" aria-label="Remove ${esc(p.name)}"><svg class="icon icon-sm"><use href="#i-close"/></svg></button>`;
     else if (host && p.id !== v.me) remove = `<button type="button" class="lp-remove" data-kick="${esc(p.id)}" data-name="${esc(p.name)}" aria-label="Remove ${esc(p.name)} from the room"><svg class="icon icon-sm"><use href="#i-close"/></svg></button>`;
-    return `<li class="lp ${p.connected ? '' : 'away'} ${p.bot ? 'lp-bot' : ''}">${avatar(p)}<span class="lp-name">${esc(p.name)}</span><span class="lp-tags">${tags.join('')}</span>${remove}</li>`;
+    const face = p.id === v.me
+      ? `<button type="button" class="lp-av-btn" data-edit-avatar aria-label="Draw your avatar">${avatar(p)}<span class="lp-av-pen"><svg class="icon icon-xs"><use href="#i-brush"/></svg></span></button>`
+      : avatar(p);
+    if (p.id === v.me && !p.av) tags.unshift('<button type="button" class="tag tag-draw" data-edit-avatar>draw yourself!</button>');
+    return `<li class="lp ${p.connected ? '' : 'away'} ${p.bot ? 'lp-bot' : ''}">${face}<span class="lp-name">${esc(p.name)}</span><span class="lp-tags">${tags.join('')}</span>${remove}</li>`;
   });
   const slots = Math.min(MAX_PLAYERS, Math.max(4, v.players.length + 1)) - v.players.length;
   for (let i = 0; i < slots; i++) items.push('<li class="lp lp-empty"><span class="avatar avatar-empty"></span><span class="lp-name">Waiting for a friend…</span></li>');
@@ -594,7 +602,9 @@ $('#add-bot-btn').addEventListener('click', async () => {
 $('#lobby-players').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-remove-bot]');
   const k = e.target.closest('[data-kick]');
-  if (b) {
+  if (e.target.closest('[data-edit-avatar]')) {
+    openAvatarEditor();
+  } else if (b) {
     const res = await emit('bot:remove', b.dataset.removeBot);
     if (res.error) toast(res.error);
   } else if (k) {
@@ -1152,7 +1162,7 @@ function renderGallery() {
         </button>
         <figcaption>
           <div class="frame-word">${esc(d.word)}</div>
-          <div class="frame-by">${avatar({ name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} <span>${esc(d.drawerName)}</span></div>
+          <div class="frame-by">${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} <span>${esc(d.drawerName)}</span></div>
           <div class="frame-meta">Round ${d.round} · ${d.guessedCount ? `${d.guessedCount} guessed it` : 'nobody guessed it'}</div>
         </figcaption>
         <div class="frame-actions">
@@ -1259,7 +1269,7 @@ function renderAwards() {
     (a, k) => `<div class="award" data-key="${a.id}" style="--delay:${0.9 + k * 0.12}s">
       <span class="award-icon">${AWARD_ICONS[a.id] || ''}</span>
       <div class="award-body"><div class="award-title">${esc(a.title)}</div>
-        <div class="award-who">${avatar({ name: a.name, color: a.color, bot: a.bot }, 'avatar-xs')} ${esc(a.name)}</div>
+        <div class="award-who">${avatar({ id: a.playerId, name: a.name, color: a.color, bot: a.bot }, 'avatar-xs')} ${esc(a.name)}</div>
         <div class="award-detail">${esc(a.detail)}</div></div>
     </div>`
   );
@@ -1270,7 +1280,7 @@ function renderAwards() {
       <div class="award-body"><div class="award-title">Crowd favourite</div>
         ${
           d
-            ? `<div class="award-who">${avatar({ name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} ${esc(d.drawerName)}</div>
+            ? `<div class="award-who">${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} ${esc(d.drawerName)}</div>
                <div class="award-detail">“${esc(d.word)}” · ${counts[fav]} like${counts[fav] === 1 ? '' : 's'}</div>`
             : '<div class="award-detail">Nobody has voted yet. Open the gallery and tap ♥ on your favourites!</div>'
         }</div>
@@ -1357,7 +1367,7 @@ function openViewer(i, auto = slideshow) {
   $('#viewer').hidden = false;
   document.body.classList.add('viewer-open');
   $('#viewer-word').textContent = d.word;
-  $('#viewer-by').innerHTML = `${avatar({ name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} drawn by ${esc(d.drawerName)} · ${viewerIndex + 1} / ${drawings.length}`;
+  $('#viewer-by').innerHTML = `${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} drawn by ${esc(d.drawerName)} · ${viewerIndex + 1} / ${drawings.length}`;
   $('#viewer').classList.toggle('is-slideshow', slideshow);
   if (viewerStop) viewerStop();
   viewerStop = replay($('#viewer-canvas'), d.ops, {
@@ -1542,9 +1552,88 @@ function confetti() {
 // ---------------------------------------------------------------------------
 // Shared UI bits
 
+// A drawn avatar shows through the av-<id> class as soon as it's known (see avatar.js).
 function avatar(p, cls = '') {
   const initial = p.bot ? '🤖' : esc([...(p.name || '?').trim()][0] || '?').toUpperCase();
-  return `<span class="avatar ${cls}${p.bot ? ' avatar-bot' : ''}" style="--pc:${esc(p.color || '#999')}" aria-hidden="true">${initial}</span>`;
+  const art = !p.bot && p.id && /^[A-Za-z0-9_-]+$/.test(p.id) ? ` av-${p.id}` : '';
+  return `<span class="avatar ${cls}${p.bot ? ' avatar-bot' : ''}${art}" style="--pc:${esc(p.color || '#999')}" aria-hidden="true">${initial}</span>`;
+}
+
+// ---------------------------------------------------------------------------
+// Avatar editor
+
+const pad = new AvatarPad($('#av-pad'));
+function savedAvatar() {
+  try {
+    const a = JSON.parse(ls.get('dd.avatar') || 'null');
+    return Array.isArray(a) && a.length ? a : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function openAvatarEditor() {
+  const me = S.view && player(S.view.me);
+  if (!me) return;
+  $('#av-pad-wrap').style.setProperty('--pc', me.color);
+  pad.load(savedAvatar() || []);
+  renderAvatarTools();
+  $('#avatar-dialog').showModal();
+}
+
+function renderAvatarTools() {
+  const pal = $('#av-palette');
+  if (!pal.childElementCount) {
+    PALETTE.forEach((hex, i) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swatch';
+      b.style.setProperty('--c', hex);
+      b.dataset.avColor = i;
+      b.setAttribute('aria-label', COLOR_NAMES[i]);
+      pal.appendChild(b);
+    });
+  }
+  for (const b of $$('[data-av-color]')) b.classList.toggle('on', Number(b.dataset.avColor) === pad.color);
+  for (const b of $$('[data-av-size]')) b.classList.toggle('on', Number(b.dataset.avSize) === pad.sizeIndex);
+}
+
+$('#av-palette').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-av-color]');
+  if (!b) return;
+  pad.color = Number(b.dataset.avColor);
+  renderAvatarTools();
+});
+for (const b of $$('[data-av-size]')) {
+  b.addEventListener('click', () => {
+    pad.sizeIndex = Number(b.dataset.avSize);
+    renderAvatarTools();
+  });
+}
+$('#av-undo').addEventListener('click', () => pad.undo());
+$('#av-clear').addEventListener('click', () => pad.clear());
+$('#av-save').addEventListener('click', async () => {
+  const data = pad.strokes.length ? pad.strokes : null;
+  ls.set('dd.avatar', data ? JSON.stringify(data) : null);
+  const res = await emit('avatar', data);
+  if (res.error) {
+    toast(res.error);
+    return;
+  }
+  $('#avatar-dialog').close();
+  sfx.pop();
+  toast(data ? 'Looking good!' : 'Avatar removed');
+});
+
+// Bring your saved avatar into each new room (only allowed in the lobby or after a game).
+let avatarSentFor = null;
+function autoAvatar(v, me) {
+  if (!me || me.av || (v.phase !== 'lobby' && v.phase !== 'gameOver')) return;
+  const key = `${v.code}:${me.id}`;
+  const saved = savedAvatar();
+  if (!saved || avatarSentFor === key) return;
+  avatarSentFor = key;
+  emit('avatar', saved);
 }
 
 function esc(s) {

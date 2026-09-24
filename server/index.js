@@ -289,6 +289,12 @@ function createServer(options = {}) {
       reply(ack, cur.room.chat(cur.pid, text));
     });
 
+    socket.on('avatar', (data, ack) => {
+      const cur = current();
+      if (!cur) return reply(ack, { error: 'Not in a room.' });
+      reply(ack, cur.room.setAvatar(cur.pid, data));
+    });
+
     socket.on('react', (emoji, ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });

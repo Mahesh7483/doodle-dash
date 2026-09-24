@@ -805,3 +805,44 @@ test('the host can remove a player, who then cannot rejoin', () => {
   assert.ok(env.room.kick(ids[0], bot.id).ok);
   assert.equal(env.room.get(bot.id), null);
 });
+
+test('drawn avatars: validated, lobby or game over only, sent to everyone and to newcomers', () => {
+  const { sanitizeAvatar } = require('../server/game');
+  const env = setup({ players: 2 });
+  const { room, ids, sent, manager } = env;
+  const face = [[0, 8, 30, 40, 31, 41, 32, 42], [3, 14, 60, 80]];
+  sent.length = 0;
+  assert.ok(room.setAvatar(ids[0], face).ok);
+  const msg = sent.find((m) => m.pid === ids[1] && m.event === 'avatar').data;
+  assert.deepEqual(msg, { id: ids[0], av: 1, data: face });
+  assert.equal(env.lastState(ids[1]).players[0].av, 1);
+
+  // Validation: sizes, colours, grid, limits.
+  assert.equal(sanitizeAvatar([[0, 7, 1, 1]]), undefined, 'size not allowed');
+  assert.equal(sanitizeAvatar([[12, 4, 1, 1]]), undefined, 'no such colour');
+  assert.equal(sanitizeAvatar([[0, 4, 1]]), undefined, 'odd coordinates');
+  assert.equal(sanitizeAvatar('<svg>'), undefined);
+  assert.deepEqual(sanitizeAvatar([[0, 4, -5, 500]]), [[0, 4, 0, 119]], 'clamped to the grid');
+  assert.equal(sanitizeAvatar(Array.from({ length: 61 }, () => [0, 4, 1, 1])), undefined, 'too many strokes');
+  assert.equal(sanitizeAvatar([[0, 4, ...Array.from({ length: 5000 }, () => 5)]]), undefined, 'too many points');
+  assert.equal(sanitizeAvatar(null), null);
+  assert.equal(sanitizeAvatar([]), null);
+  assert.equal(room.setAvatar(ids[1], [[0, 99, 1, 1]]).error, 'That drawing is too big.');
+
+  // Someone joining later gets everyone's avatars.
+  sent.length = 0;
+  const late = env.join('token-late-avatar', 'Late');
+  assert.deepEqual(sent.find((m) => m.pid === late.id && m.event === 'avatars').data.list, [{ id: ids[0], av: 1, data: face }]);
+
+  // Not during a turn (a guesser could draw the word).
+  env.advance(2500);
+  room.start(ids[0]);
+  assert.match(room.setAvatar(ids[1], face).error, /lobby/);
+
+  // Kept after the player leaves, so the gallery still shows their face.
+  room.leave(ids[0]);
+  const tv = manager.watch(room.code);
+  sent.length = 0;
+  room.connectWatcher(tv.id);
+  assert.equal(sent.find((m) => m.pid === tv.id && m.event === 'avatars').data.list[0].id, ids[0]);
+});

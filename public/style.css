@@ -418,6 +418,12 @@ code {
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
 }
 
+/* Drawn avatars: the image comes from an .av-<id> rule (see avatar.js) and hides the letter. */
+.avatar[class*=' av-'] {
+  background-size: cover;
+  background-position: center;
+}
+
 .avatar-xs {
   --size: 22px;
   border-width: 2px;
@@ -878,6 +884,96 @@ body.rejoining .home-foot {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.lp-av-btn {
+  position: relative;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 50%;
+  touch-action: manipulation;
+}
+
+.lp-av-pen {
+  position: absolute;
+  right: -5px;
+  bottom: -4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--yellow);
+  color: #1d1a2b;
+  border: 2px solid #1d1a2b;
+}
+
+.lp-av-pen .icon {
+  width: 11px;
+  height: 11px;
+}
+
+.tag-draw {
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+  background: var(--yellow);
+  border-color: #1d1a2b;
+  color: #1d1a2b;
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.sheet-avatar {
+  width: min(420px, calc(100vw - 24px));
+}
+
+.av-editor {
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  padding-top: 14px;
+}
+
+.av-pad-wrap {
+  width: min(240px, 62vw);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--pc, #999);
+  border: var(--border);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.av-pad-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.av-palette {
+  width: 100%;
+}
+
+.av-palette .swatch {
+  height: 30px;
+}
+
+.av-tools {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+}
+
+.av-hint {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-2);
+  text-align: center;
 }
 
 .lp-remove {
