@@ -39,28 +39,55 @@ function paintBackground(ctx) {
   ctx.restore();
 }
 
-// Draw a stroke's segments starting at point index `from` (0 = include the starting dot).
-// Live drawing and full redraws use the same per-segment calls, so they match exactly.
-function drawStroke(ctx, op, from = 0) {
-  const p = op.p;
-  const n = p.length / 2;
-  if (!n) return;
+// Strokes are smoothed with quadratic curves through the midpoints between points. Each new
+// point adds one curve piece (from the previous midpoint to the new one, bending through the
+// point in between), and the last half-segment (the "tail") is drawn when the stroke ends.
+// Live drawing, full redraws, replays and exports all make exactly these calls, in the same
+// order, so every screen ends up with the same pixels (flood fills depend on that).
+function strokeStyle(ctx, op) {
   ctx.strokeStyle = PALETTE[op.c] || PALETTE[0];
   ctx.fillStyle = ctx.strokeStyle;
   ctx.lineWidth = op.s;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+}
+
+// Draw a stroke's pieces starting at point index `from` (0 = include the starting dot).
+function drawStroke(ctx, op, from = 0) {
+  const p = op.p;
+  const n = p.length / 2;
+  if (!n) return;
+  strokeStyle(ctx, op);
   if (from === 0) {
     ctx.beginPath();
     ctx.arc(p[0], p[1], op.s / 2, 0, Math.PI * 2);
     ctx.fill();
   }
   for (let i = Math.max(1, from); i < n; i++) {
+    const mx = (p[2 * i - 2] + p[2 * i]) / 2;
+    const my = (p[2 * i - 1] + p[2 * i + 1]) / 2;
     ctx.beginPath();
-    ctx.moveTo(p[2 * i - 2], p[2 * i - 1]);
-    ctx.lineTo(p[2 * i], p[2 * i + 1]);
+    if (i === 1) {
+      ctx.moveTo(p[0], p[1]);
+      ctx.lineTo(mx, my);
+    } else {
+      ctx.moveTo((p[2 * i - 4] + p[2 * i - 2]) / 2, (p[2 * i - 3] + p[2 * i - 1]) / 2);
+      ctx.quadraticCurveTo(p[2 * i - 2], p[2 * i - 1], mx, my);
+    }
     ctx.stroke();
   }
+}
+
+// The last half-segment, from the final midpoint to the final point.
+function drawTail(ctx, op) {
+  const p = op.p;
+  const n = p.length / 2;
+  if (n < 2) return;
+  strokeStyle(ctx, op);
+  ctx.beginPath();
+  ctx.moveTo((p[2 * n - 4] + p[2 * n - 2]) / 2, (p[2 * n - 3] + p[2 * n - 1]) / 2);
+  ctx.lineTo(p[2 * n - 2], p[2 * n - 1]);
+  ctx.stroke();
 }
 
 // Scanline flood fill with a colour tolerance, then a 1px pass over the anti-aliased fringe
@@ -145,7 +172,10 @@ export function floodFill(ctx, x0, y0, colorIndex) {
 }
 
 function drawOp(ctx, op) {
-  if (op.t === 's') drawStroke(ctx, op, 0);
+  if (op.t === 's') {
+    drawStroke(ctx, op, 0);
+    if (!op.open) drawTail(ctx, op);
+  }
   else if (op.t === 'f') floodFill(ctx, op.x, op.y, op.c);
   else if (op.t === 'c') paintBackground(ctx);
 }
@@ -192,7 +222,7 @@ export class Board {
   apply(op) {
     switch (op.t) {
       case 'b': {
-        const stroke = { t: 's', id: op.id, c: op.c, s: op.s, p: op.p.slice() };
+        const stroke = { t: 's', id: op.id, c: op.c, s: op.s, p: op.p.slice(), open: true };
         this.ops.push(stroke);
         this.points += stroke.p.length / 2;
         drawStroke(this.ctx, stroke, 0);
@@ -205,6 +235,13 @@ export class Board {
         for (const v of op.p) stroke.p.push(v);
         this.points += op.p.length / 2;
         drawStroke(this.ctx, stroke, from);
+        break;
+      }
+      case 'x': {
+        const stroke = this.findStroke(op.id);
+        if (!stroke || !stroke.open) return;
+        stroke.open = false;
+        drawTail(this.ctx, stroke);
         break;
       }
       case 'f':
@@ -370,6 +407,7 @@ export class DrawInput {
   finish() {
     if (!this.active) return;
     this.flush();
+    this.board.apply({ t: 'x', id: this.active.id });
     this.send({ t: 'x', id: this.active.id });
     clearInterval(this.flushTimer);
     this.flushTimer = null;
@@ -425,6 +463,7 @@ export function replay(canvas, ops, { duration = 4500, onDone } = {}) {
         done += upto - pointIndex;
         pointIndex = upto;
         if (pointIndex >= n) {
+          if (!op.open) drawTail(ctx, op);
           opIndex++;
           pointIndex = 0;
         }

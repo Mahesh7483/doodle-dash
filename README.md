@@ -24,8 +24,9 @@ creating the room to the gallery.
 - **Draw your own avatar.** Doodle a face in the lobby and it follows you everywhere: the
   scoreboard, the TV, the podium, the gallery. It's saved for your next game.
 - **Built for phones first.** Full-width canvas, big tap targets, a toolbar that fits one hand,
-  and chat that keeps the drawing in view while you type. It works on laptops too, with a
-  three-column layout.
+  and chat that keeps the drawing in view while you type. Strokes are smoothed into curves, so
+  finger drawings look good. First-timers get a few one-time tips, and the host's settings are
+  remembered for their next room. It works on laptops too, with a three-column layout.
 - **One-tap join.** Friends scan the QR code or open the `/r/ABCD` link and they're in. You
   can also get a **share link** before joining: the server makes the room, you drop the link in
   the group chat, and whoever opens it first is the host (or just open `/new`).

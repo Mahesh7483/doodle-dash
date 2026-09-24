@@ -946,7 +946,11 @@ class Room {
     t.reason = reason;
     if (t.word) {
       const lastClear = t.ops.map((o) => o.t).lastIndexOf('c');
-      const ops = t.ops.slice(lastClear + 1).map(wireOp).filter((o) => o.t !== 'c');
+      // The gallery keeps finished drawings: a stroke cut off by the timer counts as finished.
+      const ops = t.ops
+        .slice(lastClear + 1)
+        .filter((o) => o.t !== 'c')
+        .map((o) => wireOp({ ...o, open: false }));
       if (ops.length) {
         const drawer = this.drawer;
         if (drawer && t.correct === 0) this.stat(drawer).stumped++;
@@ -1493,7 +1497,9 @@ function findOpenStroke(ops, id) {
 }
 
 function wireOp(o) {
-  if (o.t === 's') return { t: 's', id: o.id, c: o.c, s: o.s, p: o.p.slice() };
+  // A stroke still being drawn is marked open, so a client catching up (after a refresh) keeps
+  // extending it instead of finishing it off.
+  if (o.t === 's') return o.open ? { t: 's', id: o.id, c: o.c, s: o.s, p: o.p.slice(), open: true } : { t: 's', id: o.id, c: o.c, s: o.s, p: o.p.slice() };
   if (o.t === 'f') return { t: 'f', x: o.x, y: o.y, c: o.c };
   return { t: o.t };
 }

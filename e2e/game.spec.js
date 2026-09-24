@@ -807,3 +807,49 @@ test('share link: the server makes a room to send; whoever opens it first is the
   await aCtx.close();
   await bCtx.close();
 });
+
+test('first-game tips show once; the host gets their usual settings in the next room', async ({ browser }) => {
+  const ctx = await browser.newContext({ ...phoneDevice });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('/');
+  await page.locator('#name-input').fill('Maya');
+  await page.locator('#create-btn').click();
+  await page.locator('#add-bot-btn').click();
+  await page.locator('#set-rounds button', { hasText: '4' }).click();
+  await page.locator('#set-time button', { hasText: '60s' }).click();
+  await page.locator('#set-pack button', { hasText: 'Food' }).click();
+  await page.locator('#set-chaos button', { hasText: 'On' }).click();
+  await expect(page.locator('#set-chaos button.on')).toHaveText('On');
+
+  // First game: a tip for picking a word, then one for drawing (gone after the first stroke).
+  await page.locator('#start-btn').click();
+  await expect(page.locator('.coach:not(.coach-out)')).toContainText('Pick a word');
+  await shot(page, 'phone-19-first-tip');
+  await page.locator('.choice-easy').click();
+  await expect(page.locator('.coach:not(.coach-out)')).toContainText('Draw it');
+  await drawWithTouch(page, ctx);
+  await expect(page.locator('.coach:not(.coach-out)')).toHaveCount(0);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('dd.tips')))).toEqual(['choose', 'draw']);
+
+  // Leave and start a new room: the settings come back, and the tips don't.
+  page.on('dialog', (d) => d.accept());
+  await page.locator('#menu-btn').click();
+  await page.locator('#menu [data-leave]').click();
+  await expect(page.locator('#screen-home')).toBeVisible();
+  await page.locator('#create-btn').click();
+  await expect(page.locator('#screen-lobby')).toBeVisible();
+  await expect(page.locator('#toast')).toContainText('Your usual settings are back');
+  await expect(page.locator('#set-rounds button.on')).toHaveText('4');
+  await expect(page.locator('#set-time button.on')).toHaveText('60s');
+  await expect(page.locator('#set-pack button.on')).toHaveText('Food');
+  await expect(page.locator('#set-chaos button.on')).toHaveText('On');
+  await page.locator('#add-bot-btn').click();
+  await page.locator('#start-btn').click();
+  await expect(page.locator('.choice').first()).toBeVisible();
+  await page.waitForTimeout(600);
+  await expect(page.locator('.coach:not(.coach-out)')).toHaveCount(0);
+  expect(errors).toEqual([]);
+  await ctx.close();
+});

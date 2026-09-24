@@ -486,11 +486,13 @@ function onState(v) {
   if (prev && prev.phase === 'lobby' && v.phase === 'lobby' && v.players.length > prev.players.length) sfx.join();
   if (prev && me && prev.hostId !== v.hostId && v.hostId === v.me) toast('You are now the host.');
   autoAvatar(v, me);
+  applySavedSettings(v);
   hideConn();
   render();
 }
 
 function onPhaseChange(prev, v) {
+  hideCoach();
   const turn = v.turn;
   const live = !!prev; // false right after a refresh/rejoin: no fanfare for things that already happened
   const newTurn = turn && (!prev || !prev.turn || prev.turn.id !== turn.id);
@@ -659,7 +661,40 @@ async function updateSettings(patch) {
   sfx.click();
   const res = await emit('settings', patch);
   if (res.error && !patch.customWords) toast(res.error);
+  if (!res.error) rememberSettings(patch);
   return res;
+}
+
+// The host's settings are remembered on this device and come back in the next room they start.
+function savedSettings() {
+  try {
+    const s = JSON.parse(ls.get('dd.settings') || 'null');
+    return s && typeof s === 'object' ? s : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function rememberSettings(patch) {
+  const keep = {};
+  for (const k of ['rounds', 'drawTime', 'pack', 'chaos', 'customWords']) if (patch[k] !== undefined) keep[k] = patch[k];
+  ls.set('dd.settings', JSON.stringify({ ...savedSettings(), ...keep }));
+}
+
+let settingsAppliedFor = null;
+function applySavedSettings(v) {
+  if (settingsAppliedFor === v.code || v.phase !== 'lobby' || v.hostId !== v.me) return;
+  // Only in a room that's just starting: the host is the only person in it.
+  if (v.players.filter((p) => !p.bot).length !== 1) return;
+  settingsAppliedFor = v.code;
+  const saved = savedSettings();
+  const patch = {};
+  for (const k of ['rounds', 'drawTime', 'pack', 'chaos']) if (saved[k] !== undefined && saved[k] !== v.settings[k]) patch[k] = saved[k];
+  if (saved.pack === 'custom' && typeof saved.customWords === 'string') patch.customWords = saved.customWords;
+  if (!Object.keys(patch).length) return;
+  emit('settings', patch).then((res) => {
+    if (!res.error) toast('Your usual settings are back.');
+  });
 }
 
 $('#custom-save').addEventListener('click', async () => {
@@ -764,6 +799,7 @@ const drawInput = new DrawInput(board, canvas, (op) => socket.emit('draw', op), 
   },
   onOneLine: () => toast("That was your one line! Now wait for the guesses."),
   onStrokeEnd: () => {
+    hideCoach('draw');
     if (drawInput.chaos === 'oneline' && S.view) renderGame();
   },
 });
@@ -831,6 +867,12 @@ function renderGame() {
 
   $('#chat-form').hidden = !!v.audience;
   $('#audience-bar').hidden = !v.audience;
+
+  // First-game tips (each once per device).
+  if (v.phase === 'choosing' && amDrawer) coach('choose', $('#canvas-wrap'), 'Your turn! Pick a word. Harder ones score more for everyone.', 'below');
+  else if (drawing && amDrawer && !drawInput.lineUsed) coach('draw', $('#canvas-wrap'), 'Draw it! Use your finger. No letters or numbers.', 'inside');
+  else if (drawing && v.audience) coach('audience', $('#audience-bar'), 'Tap a sticker to react. Everyone sees it!', 'above');
+  else if (drawing && me && !me.guessed) coach('guess', $('#chat-form'), 'Type your guesses here. Faster guesses score more!', 'above');
   const input = $('#chat-input');
   const inTurn = v.phase === 'choosing' || drawing;
   const privateChat = inTurn && t && (amDrawer || (me && me.guessed));
@@ -1163,6 +1205,7 @@ $('#chat-form').addEventListener('submit', async (e) => {
   const input = $('#chat-input');
   const text = input.value.trim();
   if (!text) return;
+  hideCoach('guess');
   input.value = '';
   const res = await emit('chat', text);
   if (res.error === 'Slow down!') {
@@ -1554,6 +1597,7 @@ reactTray.addEventListener('click', async (e) => {
 });
 
 async function sendReaction(id) {
+  hideCoach('audience');
   const me = S.view && (player(S.view.me) || S.view.audience);
   floatReaction(id, me ? me.name : '', me ? me.color : '#999');
   vibrate(10);
@@ -1689,6 +1733,61 @@ function avatar(p, cls = '') {
   const art = !p.bot && p.id && /^[A-Za-z0-9_-]+$/.test(p.id) ? ` av-${p.id}` : '';
   return `<span class="avatar ${cls}${p.bot ? ' avatar-bot' : ''}${art}" style="--pc:${esc(p.color || '#999')}" aria-hidden="true">${initial}</span>`;
 }
+
+// ---------------------------------------------------------------------------
+// First-game tips: a small bubble next to the thing to do. Each shows once per device, never
+// blocks a tap, and goes away when you do the thing (or after a few seconds).
+
+const coachState = { el: null, id: null, target: null, place: 'above', timer: null };
+
+function tipsSeen() {
+  try {
+    const seen = JSON.parse(ls.get('dd.tips') || '[]');
+    return Array.isArray(seen) ? seen : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function coach(id, target, text, place = 'above') {
+  if (!target || coachState.id === id || tipsSeen().includes(id)) return;
+  hideCoach();
+  ls.set('dd.tips', JSON.stringify([...tipsSeen(), id]));
+  const el = document.createElement('div');
+  el.className = `coach coach-${place}`;
+  el.setAttribute('role', 'status');
+  el.textContent = text;
+  document.body.appendChild(el);
+  Object.assign(coachState, { el, id, target, place });
+  positionCoach();
+  coachState.timer = setTimeout(() => hideCoach(id), 8000);
+}
+
+function positionCoach() {
+  const { el, target, place } = coachState;
+  if (!el) return;
+  const r = target.getBoundingClientRect();
+  const w = el.offsetWidth;
+  const h = el.offsetHeight;
+  const cx = r.left + r.width / 2;
+  const left = Math.max(8, Math.min(innerWidth - w - 8, cx - w / 2));
+  let top = r.top + 14;
+  if (place === 'above') top = r.top - h - 12;
+  if (place === 'below') top = r.bottom + 12;
+  el.style.left = `${Math.round(left)}px`;
+  el.style.top = `${Math.round(Math.max(8, top))}px`;
+  el.style.setProperty('--ax', `${Math.round(cx - left)}px`);
+}
+
+function hideCoach(id) {
+  if (!coachState.el || (id && id !== coachState.id)) return;
+  clearTimeout(coachState.timer);
+  const el = coachState.el;
+  el.classList.add('coach-out');
+  setTimeout(() => el.remove(), 200);
+  Object.assign(coachState, { el: null, id: null, target: null });
+}
+window.addEventListener('resize', positionCoach);
 
 // ---------------------------------------------------------------------------
 // Avatar editor

@@ -351,7 +351,14 @@ test('reconnecting mid-turn resyncs the drawing', () => {
   env.sent.length = 0;
   room.connect(ids[1]);
   const sync = env.sent.find((m) => m.pid === ids[1] && m.event === 'drawSync');
-  assert.deepEqual(sync.data.ops, [{ t: 's', id: 1, c: 0, s: 10, p: [10, 10, 20, 20, 30, 30] }]);
+  // Still being drawn, so it's marked open (the client keeps extending it).
+  assert.deepEqual(sync.data.ops, [{ t: 's', id: 1, c: 0, s: 10, p: [10, 10, 20, 20, 30, 30], open: true }]);
+  room.draw(ids[0], { t: 'x', id: 1 });
+  room.disconnect(ids[1]);
+  env.sent.length = 0;
+  room.connect(ids[1]);
+  const closed = env.sent.find((m) => m.pid === ids[1] && m.event === 'drawSync');
+  assert.deepEqual(closed.data.ops, [{ t: 's', id: 1, c: 0, s: 10, p: [10, 10, 20, 20, 30, 30] }]);
 });
 
 test('host migration: host leaves -> longest-seated connected player becomes host', () => {
