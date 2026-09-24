@@ -136,6 +136,7 @@ const S = {
 
 const inviteMatch = /^\/r\/([A-Za-z]{4})\/?$/.exec(location.pathname);
 S.invite = inviteMatch ? inviteMatch[1].toUpperCase() : null;
+S.newRoom = inviteMatch && new URLSearchParams(location.search).has('new') ? S.invite : null; // made by /new
 
 // ---------------------------------------------------------------------------
 // Socket
@@ -299,6 +300,7 @@ function showHome(inviteCode) {
   $('#home-create').hidden = invite;
   $('#screen-home').classList.toggle('is-invite', invite);
   if (invite) {
+    $('.invite-kicker').textContent = inviteCode === S.newRoom ? 'Your new room is ready' : "You're invited to room";
     $('#invite-code').textContent = inviteCode;
     $('#invite-join-btn').textContent = `Join room ${inviteCode}`;
   }
@@ -411,6 +413,43 @@ $('#join-form').addEventListener('submit', (e) => {
   joinRoom($('#code-input').value);
 });
 $('#invite-join-btn').addEventListener('click', () => joinRoom(S.invite));
+
+// Share link: the server makes an empty room to send to friends; whoever joins first hosts.
+let linkRoom = null;
+$('#link-btn').addEventListener('click', async () => {
+  const btn = $('#link-btn');
+  btn.disabled = true;
+  setHomeError(null);
+  let data = null;
+  try {
+    const r = await fetch('/api/rooms', { method: 'POST' });
+    data = await r.json();
+    if (!r.ok) throw new Error(data.error);
+  } catch (err) {
+    btn.disabled = false;
+    return setHomeError((err && err.message) || 'Could not make a link. Check your connection.');
+  }
+  linkRoom = { code: data.code, url: `${location.origin}/r/${data.code}` };
+  $('#link-code').innerHTML = [...data.code].map((c) => `<span>${c}</span>`).join('');
+  $('#link-url').textContent = linkRoom.url.replace(/^https?:\/\//, '');
+  btn.hidden = true;
+  $('#link-panel').hidden = false;
+  sfx.pop();
+});
+$('#link-share').addEventListener('click', async () => {
+  if (!linkRoom) return;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Doodle Dash', text: `Join my Doodle Dash room ${linkRoom.code}! 🎨`, url: linkRoom.url });
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+    }
+  }
+  copyText(linkRoom.url);
+});
+$('#link-copy').addEventListener('click', () => linkRoom && copyText(linkRoom.url));
+$('#link-join').addEventListener('click', () => linkRoom && joinRoom(linkRoom.code));
 $('#audience-btn').addEventListener('click', joinAudience);
 $('#invite-other-btn').addEventListener('click', () => showHome(null));
 $('#name-input').addEventListener('keydown', (e) => {

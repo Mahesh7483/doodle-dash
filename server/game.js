@@ -58,6 +58,10 @@ const MAX_WATCHERS = 6;
 // guesses; they can react and like gallery drawings, but can't chat or draw.
 const MAX_AUDIENCE = 50;
 
+// Rooms made from a share link start empty; the first person to join becomes the host. An
+// unused one closes after roomIdleMs like any empty room. This caps how many can wait at once.
+const MAX_EMPTY_ROOMS = 300;
+
 const DEFAULT_TIMING = {
   chooseMs: 15000,
   revealMs: 5000,
@@ -1530,6 +1534,17 @@ class RoomManager {
     return { room, player: res.player };
   }
 
+  // A room with nobody in it yet, for a share link. Whoever joins first is the host.
+  createEmptyRoom() {
+    let empty = 0;
+    for (const r of this.rooms.values()) if (!r.players.length) empty++;
+    if (empty >= MAX_EMPTY_ROOMS) return { error: 'Lots of new rooms are waiting right now. Try again in a minute.' };
+    const code = this.newCode();
+    const room = new Room(code, { ...this.opts, timing: this.timing });
+    this.rooms.set(code, room);
+    return { room };
+  }
+
   // Join by code. If this token already has a seat in the room, it's a rejoin of the same seat.
   join(code, token, name) {
     code = normalizeCode(code);
@@ -1626,6 +1641,7 @@ module.exports = {
   REACTIONS,
   MAX_WATCHERS,
   MAX_AUDIENCE,
+  MAX_EMPTY_ROOMS,
   AVATAR_SIZES,
   sanitizeAvatar,
   CHAOS,

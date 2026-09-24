@@ -3731,3 +3731,54 @@ body[data-screen='game'] .toast.show {
   width: 36px;
   height: 36px;
 }
+
+/* ================================================================== SHARE LINK */
+
+.link-btn {
+  justify-self: center;
+  gap: 6px;
+  min-height: 40px;
+  margin-top: -4px;
+  font-size: 0.95rem;
+}
+
+.link-panel {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  padding: 14px;
+  background: var(--yellow-soft);
+  border: 2.5px solid var(--line);
+  border-radius: 16px;
+  animation: pop-in 0.3s cubic-bezier(0.3, 1.5, 0.5, 1) both;
+}
+
+.link-panel .share-row {
+  width: 100%;
+}
+
+.link-kicker {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.link-code {
+  margin-top: 0;
+}
+
+.link-url {
+  margin: 0;
+  font-weight: 700;
+  word-break: break-all;
+  text-align: center;
+}
+
+.link-note {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-2);
+  text-align: center;
+}

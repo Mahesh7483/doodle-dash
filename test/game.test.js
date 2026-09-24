@@ -1038,3 +1038,29 @@ test('audience: takes a free seat in the lobby; the host can remove them; capped
   for (let i = 0; i < 50; i++) assert.ok(manager.joinAudience(room.code, `token-crowd-${i}`, `Fan ${i}`).member);
   assert.match(manager.joinAudience(room.code, 'token-crowd-51', 'Late').error, /audience is full/);
 });
+
+test('share links: the server makes an empty room; the first to join hosts; unused ones close', () => {
+  const { MAX_EMPTY_ROOMS } = require('../server/game');
+  const env = setup({ players: 1, timing: { roomIdleMs: 30 * 60 * 1000 } });
+  const { manager } = env;
+  const made = manager.createEmptyRoom();
+  const code = made.room.code;
+  assert.match(code, /^[A-HJKMNP-Z]{4}$/);
+  assert.equal(made.room.players.length, 0);
+  const tv = manager.watch(code);
+  assert.ok(tv.id, 'a TV can show it before anyone joins');
+  const first = manager.join(code, 'token-link-first', 'First');
+  made.room.connect(first.player.id);
+  assert.equal(made.room.hostId, first.player.id);
+  const second = manager.join(code, 'token-link-second', 'Second');
+  assert.notEqual(made.room.hostId, second.player.id);
+
+  // Nobody ever joins: it closes like any empty room.
+  const unused = manager.createEmptyRoom().room.code;
+  env.run(31 * 60 * 1000, 60000);
+  assert.equal(manager.getRoom(unused), null);
+
+  // Too many waiting rooms at once is refused.
+  for (let i = 0; i < MAX_EMPTY_ROOMS; i++) manager.createEmptyRoom();
+  assert.match(manager.createEmptyRoom().error, /Try again/);
+});

@@ -336,6 +336,25 @@ test('HTTP: health check, QR code, invite links, static files', { timeout: 20000
   const html = await invite.text();
   assert.match(html, /Join my Doodle Dash room ABCD!/);
   assert.match(html, new RegExp(`content="${url}/og.png"`));
+  // Share links: POST /api/rooms makes an empty room; /new makes one and goes to it.
+  const made = await fetch(`${url}/api/rooms`, { method: 'POST' });
+  assert.equal(made.status, 201);
+  const { code, url: link } = await made.json();
+  assert.match(code, /^[A-HJKMNP-Z]{4}$/);
+  assert.equal(link, `${url}/r/${code}`);
+  const first = await connect(url);
+  const hostState = new Promise((resolve) => first.on('state', resolve));
+  const joined = await ask(first, 'room:join', { name: 'First', token: 'share-link-token-1', code });
+  assert.ok(joined.ok);
+  assert.equal((await hostState).hostId, joined.playerId, 'the first to join is the host');
+  first.close();
+  const fresh = await fetch(`${url}/new`, { redirect: 'manual' });
+  assert.equal(fresh.status, 302);
+  assert.match(fresh.headers.get('location'), /^\/r\/[A-HJKMNP-Z]{4}\?new=1$/);
+  let limited = 0;
+  for (let i = 0; i < 6; i++) if ((await fetch(`${url}/api/rooms`, { method: 'POST' })).status === 429) limited++;
+  assert.ok(limited >= 1, 'rate-limited per visitor');
+
   const tvPage = await fetch(`${url}/tv/abcd`);
   assert.equal(tvPage.status, 200);
   assert.match(await tvPage.text(), /src="\/tv\.js"/);

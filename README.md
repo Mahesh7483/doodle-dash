@@ -6,6 +6,8 @@ and play. No logins, no installs, no ads.
 
 ### ▶ Play now: **<https://doodle-dash-stv7.onrender.com>**
 
+Or open **<https://doodle-dash-stv7.onrender.com/new>** to get a fresh room straight away.
+
 ![A phone and a laptop playing together: Maya draws a house on her phone while Leo guesses on his laptop](docs/demo.gif)
 
 **[Watch the 78-second demo video](docs/doodle-dash-demo.mp4)**: a phone and a laptop play with a bot, from
@@ -24,7 +26,9 @@ creating the room to the gallery.
 - **Built for phones first.** Full-width canvas, big tap targets, a toolbar that fits one hand,
   and chat that keeps the drawing in view while you type. It works on laptops too, with a
   three-column layout.
-- **One-tap join.** Friends scan the QR code or open the `/r/ABCD` link and they're in.
+- **One-tap join.** Friends scan the QR code or open the `/r/ABCD` link and they're in. You
+  can also get a **share link** before joining: the server makes the room, you drop the link in
+  the group chat, and whoever opens it first is the host (or just open `/new`).
 - **Party mode on a TV.** Open `/tv` on a TV or laptop and type the room code. The big screen
   shows the QR code and who's in, then the drawing, the blanks, the timer, the scores and every
   guess, and at the end the podium and a looping slideshow of the gallery. Everyone plays on
@@ -62,7 +66,9 @@ creating the room to the gallery.
 ## How to play
 
 1. **Join.** Enter a name, then create a room or type a 4-letter code. The host can show a QR
-   code or share a link (`/r/ABCD`) so others join in one tap. 2–8 players.
+   code or share a link (`/r/ABCD`) so others join in one tap. 2–8 players. Or tap **Get a link
+   to share instead** (or open `/new`): the server makes an empty room, and whoever joins first
+   is the host. An unused room closes after 30 minutes.
 2. **Lobby.** The host sets rounds (2–5, default 3), draw time (60 / 80 / 100 s, default 80) and a
    word pack (Everyday, Animals, Food, Places, Actions, Mixed, or Custom words). Start needs at
    least 2 players. Playing alone? The host can add bots, and they draw and guess too. The
@@ -184,8 +190,9 @@ Every push to the `main` branch redeploys automatically.
 
 - **Server** (`server/`): Node + Express + Socket.IO 4. `game.js` is the whole game as pure logic
   with an injectable clock (rooms, turns, timers, scoring, hints, reconnects, host migration),
-  which is why it's easy to test. `index.js` wires it to HTTP and sockets and serves the QR code
-  at `/qr/ABCD.svg` (rendered on the server with the `qrcode` package). `words.js` has 5 packs of
+  which is why it's easy to test. `index.js` wires it to HTTP and sockets, serves the QR code
+  at `/qr/ABCD.svg` (rendered on the server with the `qrcode` package) and makes share-link
+  rooms (`POST /api/rooms`, `/new`, rate-limited per visitor). `words.js` has 5 packs of
   90 words each, and `doodles.js` has the 20 doodles bots draw (simple shapes with a hand-drawn
   wobble).
 - **Client** (`public/`): plain HTML, CSS and JavaScript with no build step. `canvas.js` draws on

@@ -763,3 +763,47 @@ test('chaos rounds: mirror flips the drawing, one line for the bot, blindfold co
   expect(errors).toEqual([]);
   await ctx.close();
 });
+
+test('share link: the server makes a room to send; whoever opens it first is the host', async ({ browser }) => {
+  const aCtx = await browser.newContext({ ...phoneDevice });
+  const bCtx = await browser.newContext({ ...phoneDevice });
+  const a = await aCtx.newPage();
+  const errors = [];
+  a.on('pageerror', (e) => errors.push(e.message));
+  await a.goto('/');
+  await a.locator('#link-btn').click();
+  await expect(a.locator('#link-panel')).toBeVisible();
+  const code = ((await a.locator('#link-code').textContent()) || '').trim();
+  expect(code).toMatch(/^[A-Z]{4}$/);
+  await expect(a.locator('#link-url')).toContainText(`/r/${code}`);
+  await shot(a, 'phone-18-share-link');
+
+  // A friend opens the link first and becomes the host.
+  const b = await bCtx.newPage();
+  b.on('pageerror', (e) => errors.push(e.message));
+  await b.goto(`/r/${code}`);
+  await b.locator('#name-input').fill('Friend');
+  await b.locator('#invite-join-btn').click();
+  await expect(b.locator('#screen-lobby')).toBeVisible();
+  await expect(b.locator('#start-btn')).toBeVisible();
+  await expect(b.locator('#lobby-players .tag-host')).toHaveCount(1);
+
+  // The one who made the link joins as a player.
+  await a.locator('#name-input').fill('Maker');
+  await a.locator('#link-join').click();
+  await expect(a.locator('#screen-lobby')).toBeVisible();
+  await expect(a.locator('#start-btn')).toBeHidden();
+  await expect(b.locator('#lobby-players')).toContainText('Maker');
+
+  // /new makes a fresh room and opens it.
+  const c = await aCtx.newPage();
+  await c.goto('/new');
+  await expect(c).toHaveURL(/\/r\/[A-Z]{4}$/);
+  await expect(c.locator('.invite-kicker')).toHaveText('Your new room is ready');
+  await c.locator('#name-input').fill('Solo');
+  await c.locator('#invite-join-btn').click();
+  await expect(c.locator('#start-btn')).toBeVisible();
+  expect(errors).toEqual([]);
+  await aCtx.close();
+  await bCtx.close();
+});

@@ -79,6 +79,18 @@
           </label>
           <div id="home-create" class="home-actions">
             <button id="create-btn" class="btn btn-primary btn-lg btn-block" type="button">Create a room</button>
+            <button id="link-btn" class="btn btn-link link-btn" type="button"><svg class="icon icon-sm"><use href="#i-share"/></svg> Get a link to share instead</button>
+            <div id="link-panel" class="link-panel" hidden>
+              <div class="link-kicker">Your room is ready</div>
+              <div id="link-code" class="room-code link-code" aria-live="polite"></div>
+              <p id="link-url" class="link-url"></p>
+              <div class="share-row">
+                <button id="link-share" class="btn btn-secondary" type="button"><svg class="icon"><use href="#i-share"/></svg> Share</button>
+                <button id="link-copy" class="btn btn-secondary" type="button"><svg class="icon"><use href="#i-copy"/></svg> Copy link</button>
+              </div>
+              <button id="link-join" class="btn btn-primary btn-block" type="button">Join it now</button>
+              <p class="link-note">Send it to your group chat. Whoever opens it first is the host. It stays open for 30 minutes until someone joins.</p>
+            </div>
             <div class="or"><span>or join friends</span></div>
             <form id="join-form" class="join-row" autocomplete="off">
               <input id="code-input" class="input code-input" type="text" maxlength="4" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="CODE" aria-label="4-letter room code" enterkeyhint="go">

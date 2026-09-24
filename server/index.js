@@ -70,6 +70,39 @@ function createServer(options = {}) {
     res.status(200).type('text/plain').send('ok');
   });
 
+  // Share links: the server makes an empty room, and whoever opens the link first is the host.
+  // Rate-limited per visitor so nobody can fill the server with empty rooms.
+  const linkTimes = new Map(); // ip -> recent timestamps
+  const linkAllowed = (ip) => {
+    const now = Date.now();
+    const recent = (linkTimes.get(ip) || []).filter((t) => now - t < 60000);
+    if (recent.length >= 6) return false;
+    recent.push(now);
+    linkTimes.set(ip, recent);
+    if (linkTimes.size > 5000) linkTimes.clear();
+    return true;
+  };
+  const origin = (req) => {
+    const host = /^[A-Za-z0-9.:-]+$/.test(req.get('host') || '') ? req.get('host') : 'localhost';
+    return `${req.protocol}://${host}`;
+  };
+  app.post('/api/rooms', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (!linkAllowed(req.ip)) return res.status(429).json({ error: 'Too many new rooms — try again in a minute.' });
+    const made = manager.createEmptyRoom();
+    if (made.error) return res.status(503).json({ error: made.error });
+    const code = made.room.code;
+    res.status(201).json({ code, url: `${origin(req)}/r/${code}` });
+  });
+  // Opening /new makes a fresh room and goes straight to it.
+  app.get('/new', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    if (!linkAllowed(req.ip)) return res.status(429).type('text/plain').send('Too many new rooms — try again in a minute.');
+    const made = manager.createEmptyRoom();
+    if (made.error) return res.status(503).type('text/plain').send(made.error);
+    res.redirect(302, `/r/${made.room.code}?new=1`);
+  });
+
   app.get('/qr/:file', async (req, res) => {
     const m = /^([A-Za-z]{4})\.svg$/.exec(req.params.file);
     const code = m ? normalizeCode(m[1]) : '';
