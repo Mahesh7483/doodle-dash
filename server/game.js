@@ -579,7 +579,7 @@ class Room {
         pointIndex: 0,
         strokeId: 0,
         startAt: now + 800,
-        duration: Math.max(6000, Math.min(22000, this.drawMs() * 0.35)),
+        duration: Math.max(6000, Math.min(15000, this.drawMs() * 0.25)),
       };
     }
     const pool = PACKS.mixed.easy.concat(PACKS.mixed.medium, PACKS.mixed.hard, doodleWords());

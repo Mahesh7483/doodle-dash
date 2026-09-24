@@ -6,8 +6,10 @@ and play. No logins, no installs, no ads.
 
 ### ▶ Play now: **<https://doodle-dash-stv7.onrender.com>**
 
-(It runs on Render's free plan: if nobody has played for 15 minutes, the first visit takes
-about 30–50 seconds while the server wakes up.)
+![A phone and a laptop playing together: Maya draws a house on her phone while Leo guesses on his laptop](docs/demo.gif)
+
+**[Watch the 78-second demo video](docs/doodle-dash-demo.mp4)**: a phone and a laptop play with a bot, from
+creating the room to the gallery.
 
 ![Doodle Dash on phones: lobby with QR code, drawing, guessing in dark mode, and the end-of-game gallery](docs/hero.jpg)
 
