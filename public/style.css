@@ -1703,6 +1703,31 @@ body.rejoining .home-foot {
   .ov-wait .avatar-xl {
     --size: 56px;
   }
+
+  /* With a chaos twist, the strip has to squeeze in above the three words. */
+  .ov-choose.has-chaos .ov-kicker,
+  .ov-choose .ov-chaos-kicker {
+    display: none;
+  }
+
+  .ov-choose .ov-chaos {
+    gap: 8px;
+    padding: 4px 8px;
+  }
+
+  .ov-choose .ov-chaos-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  .ov-choose .ov-chaos-text b {
+    font-size: 0.95rem;
+  }
+
+  .ov-choose .ov-chaos-text span {
+    font-size: 0.76rem;
+    line-height: 1.2;
+  }
 }
 
 /* Toolbar */
@@ -3409,4 +3434,213 @@ body[data-screen='game'] .toast.show {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* ================================================================== CHAOS ROUNDS */
+
+.new-pill {
+  margin-left: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #1d1a2b;
+  border: 2px solid #1d1a2b;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+.setting-note {
+  margin: -2px 0 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+/* The twist card while the word is picked */
+.ov-chaos {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  background: var(--purple-soft);
+  border: 2.5px solid var(--line);
+  border-radius: 14px;
+  animation: chaos-in 0.6s cubic-bezier(0.3, 1.6, 0.5, 1) 0.2s both;
+}
+
+.ov-chaos-icon {
+  flex: none;
+  width: 44px;
+  height: 44px;
+}
+
+.ov-chaos-icon svg,
+.chaos-chip svg,
+.ov-chaos-note svg,
+.frame-chaos svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.ov-chaos-text {
+  display: grid;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.ov-chaos-kicker {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--purple);
+}
+
+.ov-chaos-text b {
+  font-size: 1.1rem;
+}
+
+.ov-chaos-text span {
+  font-size: 0.86rem;
+  color: var(--text-2);
+}
+
+@keyframes chaos-in {
+  0% {
+    opacity: 0;
+    transform: rotate(-8deg) scale(0.6);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ov-chaos-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px 2px 4px;
+  border-radius: 999px;
+  background: var(--purple-soft);
+  font-weight: 650;
+  font-size: 0.85rem;
+}
+
+.ov-chaos-note svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* On the canvas while drawing */
+.chaos-chip {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 4px;
+  border-radius: 999px;
+  background: #fff;
+  color: #1d1a2b;
+  border: 2.5px solid #1d1a2b;
+  box-shadow: 0 3px 0 #1d1a2b;
+  font-weight: 700;
+  font-size: 0.82rem;
+  pointer-events: none;
+  animation: chaos-in 0.5s cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+.chaos-chip svg {
+  width: 24px;
+  height: 24px;
+}
+
+.blindfold {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: repeating-linear-gradient(-45deg, #2b2440 0 18px, #231d31 18px 36px);
+}
+
+.blind-card {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  max-width: 80%;
+  padding: 12px 18px;
+  text-align: center;
+  color: #f7efdf;
+}
+
+.blind-card svg {
+  width: 64px;
+  height: 64px;
+}
+
+.blind-card b {
+  font-size: 1.2rem;
+}
+
+.blind-card span {
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+/* The drawer's toolbar only offers what the twist allows */
+.toolbar[data-chaos='oneline'] [data-tool='eraser'],
+.toolbar[data-chaos='oneline'] [data-tool='fill'],
+.toolbar[data-chaos='oneline'] #undo-btn,
+.toolbar[data-chaos='oneline'] #clear-btn,
+.toolbar[data-chaos='tiny'] [data-tool='eraser'],
+.toolbar[data-chaos='tiny'] [data-tool='fill'],
+.toolbar[data-chaos='tiny'] [data-size],
+.toolbar[data-chaos='noundo'] [data-tool='eraser'],
+.toolbar[data-chaos='noundo'] #undo-btn,
+.toolbar[data-chaos='noundo'] #clear-btn,
+.toolbar[data-chaos='ink'] .swatch:not([data-color='0']) {
+  display: none;
+}
+
+.toolbar[data-chaos='ink'] .palette {
+  grid-template-columns: 48px 1fr;
+}
+
+.toolbar[data-chaos='ink'] .palette::after {
+  content: 'Ink only: black, plus the eraser';
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+/* Gallery */
+.frame-chaos {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 1px 9px 1px 3px;
+  border-radius: 999px;
+  background: var(--purple-soft);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.frame-chaos svg {
+  width: 20px;
+  height: 20px;
 }

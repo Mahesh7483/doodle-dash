@@ -14,6 +14,7 @@ const AVATAR_COLORS = ['#ff595e', '#1982c4', '#ffb000', '#2bb673', '#8e5cf7', '#
 const CANVAS_W = 800;
 const CANVAS_H = 600;
 const PALETTE_SIZE = 12;
+const WHITE = 2; // palette index of white (also the eraser)
 const BRUSH_SIZES = [4, 10, 24, 48];
 const DRAW_TIMES = [60, 80, 100];
 const MAX_POINTS_PER_TURN = 20000;
@@ -38,6 +39,11 @@ const REACTIONS = ['lol', 'fire', 'love', 'wow', 'hmm', 'star'];
 const REACTIONS_PER_2S = 5;
 const LIKES_PER_2S = 8;
 
+// Chaos rounds: when the host turns them on, every turn gets a twist. The server enforces the
+// rules it can check (one stroke, thin brush only, no undo/clear, black ink); mirror and
+// blindfold happen on the drawer's screen.
+const CHAOS = ['oneline', 'blind', 'mirror', 'tiny', 'noundo', 'ink'];
+
 // Drawn avatars: small drawings on a 120x120 grid, [colour, size, x0, y0, x1, y1, ...] per stroke.
 const AVATAR_GRID = 120;
 const AVATAR_SIZES = [4, 8, 14];
@@ -58,7 +64,7 @@ const DEFAULT_TIMING = {
   drawMs: null, // test override for the host's draw time
 };
 
-const DEFAULT_SETTINGS = { rounds: 3, drawTime: 80, pack: 'mixed' };
+const DEFAULT_SETTINGS = { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false };
 
 // ---------------------------------------------------------------------------
 // Text helpers
@@ -180,6 +186,7 @@ function newId() {
 class Room {
   constructor(code, opts = {}) {
     this.code = code;
+    this.opts = opts;
     this.now = opts.now || Date.now;
     this.rng = opts.rng || Math.random;
     this.send = opts.send || (() => {});
@@ -484,6 +491,7 @@ class Room {
       if (DRAW_TIMES.includes(d)) s.drawTime = d;
     }
     if (patch.pack != null && PACK_IDS.includes(patch.pack)) s.pack = patch.pack;
+    if (typeof patch.chaos === 'boolean') s.chaos = patch.chaos;
     let error = null;
     if (patch.customWords != null) {
       this.customWords = parseCustomWords(patch.customWords);
@@ -617,6 +625,8 @@ class Room {
       drawerColor: drawer.color,
       drawerBot: !!drawer.bot,
       choices: this.pickChoices(drawer),
+      chaos: this.settings.chaos ? this.pickChaos() : null,
+      strokes: 0,
       word: null,
       difficulty: null,
       mult: 1,
@@ -639,6 +649,19 @@ class Room {
     this.endsAt = now + this.timing.chooseMs;
     this.system(`${drawer.name} is choosing a word`, 'turn');
     this.broadcastState();
+  }
+
+  pickChaos() {
+    // Tests can fix the order (DD_CHAOS=mirror,blind,...).
+    const order = this.opts.chaosOrder;
+    if (order && order.length) {
+      this.chaosIndex = (this.chaosIndex || 0) + 1;
+      this.lastChaos = order[(this.chaosIndex - 1) % order.length];
+      return this.lastChaos;
+    }
+    const options = CHAOS.filter((c) => c !== this.lastChaos);
+    this.lastChaos = options[Math.floor(this.rng() * options.length)];
+    return this.lastChaos;
   }
 
   chooseWord(pid, index) {
@@ -673,7 +696,7 @@ class Room {
     const drawer = this.drawer;
     const rng = this.rng;
     if (drawer && drawer.bot && LIBRARY[t.word]) {
-      const ops = doodleOps(t.word);
+      const ops = chaosOps(doodleOps(t.word), t.chaos, rng);
       t.botDraw = {
         ops,
         total: ops.reduce((n, o) => n + (o.t === 's' ? o.p.length / 2 : 20), 0),
@@ -859,6 +882,7 @@ class Room {
           drawerColor: t.drawerColor,
           drawerBot: t.drawerBot,
           guessedCount: t.correct,
+          chaos: t.chaos,
           ops,
         });
       }
@@ -1069,6 +1093,7 @@ class Room {
     const p = this.get(pid);
     if (!p || (!p.bot && this.rateLimited(p, 'drawTimes', DRAW_MSGS_PER_SEC))) return false;
     const t = this.turn;
+    const rule = t.chaos;
     let out = null;
     switch (op.t) {
       case 'b': {
@@ -1077,7 +1102,11 @@ class Room {
         const s = toInt(op.s);
         const pts = sanitizePoints(op.p);
         if (id == null || c == null || c < 0 || c >= PALETTE_SIZE || !BRUSH_SIZES.includes(s) || !pts || !pts.length) return false;
+        if (rule === 'oneline' && t.strokes >= 1) return false;
+        if (rule === 'tiny' && s !== BRUSH_SIZES[0]) return false;
+        if (rule === 'ink' && c !== 0 && c !== WHITE) return false;
         if (!this.spend(pid, pts.length / 2, 1)) return false;
+        t.strokes++;
         t.ops.push({ t: 's', id, c, s, p: pts, open: true });
         out = { t: 'b', id, c, s, p: pts };
         break;
@@ -1107,18 +1136,20 @@ class Room {
         const c = toInt(op.c);
         if (x == null || y == null || x < 0 || y < 0 || x >= CANVAS_W || y >= CANVAS_H) return false;
         if (c == null || c < 0 || c >= PALETTE_SIZE) return false;
+        if (rule === 'oneline' || rule === 'tiny' || (rule === 'ink' && c !== 0 && c !== WHITE)) return false;
         if (!this.spend(pid, 0, 1)) return false;
         t.ops.push({ t: 'f', x, y, c });
         out = { t: 'f', x, y, c };
         break;
       }
       case 'u': {
-        if (!t.ops.length) return false;
+        if (!t.ops.length || rule === 'oneline' || rule === 'noundo') return false;
         t.ops.pop();
         out = { t: 'u' };
         break;
       }
       case 'c': {
+        if (rule === 'oneline' || rule === 'noundo') return false;
         if (!this.spend(pid, 0, 1)) return false;
         t.ops.push({ t: 'c' });
         out = { t: 'c' };
@@ -1176,6 +1207,7 @@ class Room {
         rounds: this.settings.rounds,
         drawTime: this.settings.drawTime,
         pack: this.settings.pack,
+        chaos: this.settings.chaos,
         customCount: this.customWords.length,
       },
       players: this.players.map((p) => ({
@@ -1206,6 +1238,7 @@ class Room {
         drawTimeMs: this.drawMs(),
         difficulty: t.difficulty,
         mult: t.word ? t.mult : null,
+        chaos: t.chaos,
         word: knowsWord ? t.word : null,
         mask: t.word && !knowsWord ? buildMask(t.word, t.revealed) : null,
         choices: isDrawer && this.phase === 'choosing' ? t.choices : null,
@@ -1298,6 +1331,45 @@ function sanitizePoints(p) {
     out[i + 1] = Math.max(0, Math.min(CANVAS_H - 1, Math.round(y)));
   }
   return out;
+}
+
+// A bot's doodle, changed to follow the turn's chaos rule.
+function chaosOps(ops, rule, rng) {
+  const strokes = ops.filter((o) => o.t === 's');
+  switch (rule) {
+    case 'oneline': {
+      // Everything joined into one continuous line, like a person who can't lift the pen.
+      const p = [];
+      for (const s of strokes) for (const v of s.p) p.push(v);
+      return p.length ? [{ t: 's', c: 0, s: BRUSH_SIZES[1], p }] : [];
+    }
+    case 'tiny':
+      return strokes.map((s) => ({ ...s, s: BRUSH_SIZES[0] }));
+    case 'ink':
+      return strokes.map((s) => ({ ...s, c: s.c === WHITE ? WHITE : 0 }));
+    case 'mirror':
+      return ops.map((o) => {
+        if (o.t === 'f') return { ...o, x: CANVAS_W - 1 - o.x };
+        if (o.t !== 's') return o;
+        const p = o.p.slice();
+        for (let i = 0; i < p.length; i += 2) p[i] = CANVAS_W - 1 - p[i];
+        return { ...o, p };
+      });
+    case 'blind':
+      // A blindfolded bot loses track of where it is: each stroke lands a little off.
+      return strokes.map((s) => {
+        const dx = Math.round((rng() - 0.5) * 70);
+        const dy = Math.round((rng() - 0.5) * 50);
+        const p = s.p.slice();
+        for (let i = 0; i < p.length; i += 2) {
+          p[i] = Math.max(0, Math.min(CANVAS_W - 1, p[i] + dx));
+          p[i + 1] = Math.max(0, Math.min(CANVAS_H - 1, p[i + 1] + dy));
+        }
+        return { ...s, p };
+      });
+    default:
+      return ops;
+  }
 }
 
 // Returns the cleaned avatar, null for "no avatar", or undefined if it isn't acceptable.
@@ -1451,4 +1523,6 @@ module.exports = {
   MAX_WATCHERS,
   AVATAR_SIZES,
   sanitizeAvatar,
+  CHAOS,
+  chaosOps,
 };

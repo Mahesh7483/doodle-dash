@@ -565,11 +565,11 @@ test('custom words: at least 10, each 2–30 chars, all count as medium', () => 
 test('settings are validated: rounds 2–5, draw time 60/80/100', () => {
   const env = setup({ players: 2 });
   const { room, ids } = env;
-  assert.deepEqual(room.settings, { rounds: 3, drawTime: 80, pack: 'mixed' });
-  room.updateSettings(ids[0], { rounds: 9, drawTime: 75, pack: 'nope' });
-  assert.deepEqual(room.settings, { rounds: 3, drawTime: 80, pack: 'mixed' });
-  room.updateSettings(ids[0], { rounds: 5, drawTime: 100, pack: 'food' });
-  assert.deepEqual(room.settings, { rounds: 5, drawTime: 100, pack: 'food' });
+  assert.deepEqual(room.settings, { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false });
+  room.updateSettings(ids[0], { rounds: 9, drawTime: 75, pack: 'nope', chaos: 'yes' });
+  assert.deepEqual(room.settings, { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false });
+  room.updateSettings(ids[0], { rounds: 5, drawTime: 100, pack: 'food', chaos: true });
+  assert.deepEqual(room.settings, { rounds: 5, drawTime: 100, pack: 'food', chaos: true });
 });
 
 test('rooms are garbage-collected after 30 min with no connected players', () => {
@@ -845,4 +845,121 @@ test('drawn avatars: validated, lobby or game over only, sent to everyone and to
   sent.length = 0;
   room.connectWatcher(tv.id);
   assert.equal(sent.find((m) => m.pid === tv.id && m.event === 'avatars').data.list[0].id, ids[0]);
+});
+
+test('chaos rounds: off by default; when on, every turn gets a twist, never the same twice in a row', () => {
+  const { CHAOS } = require('../server/game');
+  const env = setup({ players: 3 });
+  const { room, ids } = env;
+  room.start(ids[0]);
+  assert.equal(room.turn.chaos, null);
+  assert.equal(env.lastState(ids[1]).turn.chaos, null);
+
+  const env2 = setup({ players: 3, seed: 11 });
+  env2.room.updateSettings(env2.ids[0], { chaos: true, rounds: 5 });
+  env2.room.start(env2.ids[0]);
+  const seen = [];
+  while (env2.room.phase !== 'gameOver') {
+    if (env2.room.phase === 'choosing') {
+      const c = env2.room.turn.chaos;
+      assert.ok(CHAOS.includes(c));
+      if (seen.at(-1) !== undefined && seen.at(-1).turn !== env2.room.turn.id) {
+        assert.notEqual(c, seen.at(-1).c, 'no repeats');
+      }
+      if (!seen.length || seen.at(-1).turn !== env2.room.turn.id) seen.push({ turn: env2.room.turn.id, c });
+      // Everyone sees the twist (it's not a secret), including during choosing.
+      for (const id of env2.ids) assert.equal(env2.lastState(id).turn.chaos, c);
+    }
+    env2.run(20000, 1000);
+  }
+  assert.equal(seen.length, 15);
+  assert.ok(new Set(seen.map((x) => x.c)).size >= 4, 'a mix of twists');
+});
+
+test('chaos rules the server enforces: one line, tiny brush, no take-backs, ink only', () => {
+  const env = setup({ players: 2 });
+  const { room, ids } = env;
+  room.updateSettings(ids[0], { chaos: true });
+  room.start(ids[0]);
+  const drawer = room.turn.drawerId;
+  const stroke = (id, extra = {}) => room.draw(drawer, { t: 'b', id, c: 0, s: 10, p: [10, 10, 20, 20], ...extra });
+  const tryRule = (rule) => {
+    room.turn.chaos = rule;
+    room.turn.strokes = 0;
+    room.turn.ops = [];
+  };
+  chooseDifficulty(env, 'easy');
+
+  tryRule('oneline');
+  assert.ok(stroke(1));
+  assert.ok(room.draw(drawer, { t: 'x', id: 1 }));
+  assert.equal(stroke(2), false, 'only one stroke');
+  assert.equal(room.draw(drawer, { t: 'u' }), false, 'no undo');
+  assert.equal(room.draw(drawer, { t: 'c' }), false, 'no clear');
+  assert.equal(room.draw(drawer, { t: 'f', x: 5, y: 5, c: 3 }), false, 'no fill');
+
+  tryRule('tiny');
+  assert.equal(stroke(3), false, 'only the thinnest brush');
+  assert.ok(stroke(4, { s: 4 }));
+  assert.equal(room.draw(drawer, { t: 'f', x: 5, y: 5, c: 3 }), false);
+
+  tryRule('noundo');
+  assert.ok(stroke(5));
+  assert.equal(room.draw(drawer, { t: 'u' }), false);
+  assert.equal(room.draw(drawer, { t: 'c' }), false);
+
+  tryRule('ink');
+  assert.equal(stroke(6, { c: 3 }), false, 'black only');
+  assert.ok(stroke(7, { c: 0 }));
+  assert.ok(stroke(8, { c: 2, s: 24 }), 'the eraser still works');
+
+  for (const rule of ['mirror', 'blind']) {
+    tryRule(rule);
+    assert.ok(stroke(9, { c: 3 }));
+    assert.ok(room.draw(drawer, { t: 'u' }));
+  }
+});
+
+test('chaos: bots follow every twist, and the gallery remembers it', () => {
+  const { CHAOS, chaosOps } = require('../server/game');
+  const { doodleOps, doodleWords } = require('../server/doodles');
+  const { mulberry32 } = require('./helpers');
+  const rng = mulberry32(5);
+  for (const word of doodleWords()) {
+    const ops = doodleOps(word);
+    const one = chaosOps(ops, 'oneline', rng);
+    assert.equal(one.length, 1);
+    assert.equal(one[0].p.length, ops.filter((o) => o.t === 's').reduce((n, s) => n + s.p.length, 0));
+    assert.ok(chaosOps(ops, 'tiny', rng).every((o) => o.t === 's' && o.s === 4));
+    assert.ok(chaosOps(ops, 'ink', rng).every((o) => o.t === 's' && (o.c === 0 || o.c === 2)));
+    const m = chaosOps(ops, 'mirror', rng);
+    assert.equal(m.length, ops.length);
+    const firstStroke = ops.findIndex((o) => o.t === 's');
+    assert.equal(m[firstStroke].p[0], 799 - ops[firstStroke].p[0]);
+    assert.ok(chaosOps(ops, 'blind', rng).every((o) => o.t === 's' && o.p.every((v, i) => v >= 0 && v < (i % 2 ? 600 : 800))));
+  }
+  // A whole solo game with chaos on: the bot's drawings all get through the rules.
+  for (let seed = 1; seed <= 6; seed++) {
+    const env = setup({ players: 1, seed });
+    const { room, ids } = env;
+    room.addBot(ids[0]);
+    room.updateSettings(ids[0], { chaos: true, rounds: 3 });
+    room.start(ids[0]);
+    while (room.phase !== 'gameOver') {
+      const t = room.turn;
+      if (room.phase === 'choosing' && t.drawerId === ids[0]) chooseDifficulty(env, 'easy');
+      if (room.phase === 'drawing' && t.drawerId === ids[0] && !t.ops.length) {
+        room.draw(ids[0], { t: 'b', id: 1, c: 0, s: 4, p: [100, 100, 200, 200] });
+        room.draw(ids[0], { t: 'x', id: 1 });
+      }
+      env.run(1000);
+    }
+    const botDrawings = room.gallery.filter((d) => d.drawerBot);
+    assert.equal(botDrawings.length, 3, `seed ${seed}`);
+    for (const d of room.gallery) {
+      assert.ok(CHAOS.includes(d.chaos));
+      if (d.drawerBot && d.chaos === 'oneline') assert.equal(d.ops.filter((o) => o.t === 's').length, 1);
+      if (d.drawerBot) assert.ok(d.ops.filter((o) => o.t === 's').reduce((n, s) => n + s.p.length / 2, 0) > 60, `${d.word} (${d.chaos}) was drawn`);
+    }
+  }
 });

@@ -6,7 +6,7 @@ const http = require('http');
 const express = require('express');
 const { Server } = require('socket.io');
 const QRCode = require('qrcode');
-const { RoomManager, normalizeCode, validCode } = require('./game');
+const { RoomManager, normalizeCode, validCode, CHAOS } = require('./game');
 
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
@@ -46,8 +46,13 @@ function createServer(options = {}) {
     const s = sockets.get(pid);
     if (s) s.emit(event, payload);
   };
+  const chaosOrder = String(process.env.DD_CHAOS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => CHAOS.includes(s));
   const manager = new RoomManager({
     send,
+    chaosOrder: options.chaosOrder || chaosOrder,
     timing: { ...timingFromEnv(), ...(options.timing || {}) },
     now: options.now,
     rng: options.rng,

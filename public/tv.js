@@ -4,7 +4,7 @@
 
 import { Board, replay } from './canvas.js';
 import { sfx, isMuted, setMuted } from './sound.js';
-import { STICKERS, AWARD_ICONS } from './stickers.js';
+import { STICKERS, AWARD_ICONS, CHAOS } from './stickers.js';
 import { syncCards } from './ui.js';
 import { setAvatars, setAvatar } from './avatar.js';
 
@@ -242,7 +242,9 @@ function renderLobby() {
     list.innerHTML = items.join('');
   }
   const s = v.settings;
-  $('#tvl-settings').innerHTML = [`${s.rounds} rounds`, `${s.drawTime} s to draw`, `${PACK_NAMES[s.pack] || 'Mixed'} words`].map((t) => `<span class="tv-pill">${esc(t)}</span>`).join('');
+  $('#tvl-settings').innerHTML =
+    [`${s.rounds} rounds`, `${s.drawTime} s to draw`, `${PACK_NAMES[s.pack] || 'Mixed'} words`].map((t) => `<span class="tv-pill">${esc(t)}</span>`).join('') +
+    (s.chaos ? `<span class="tv-pill tv-pill-chaos">${CHAOS.mirror.svg}Chaos rounds</span>` : '');
   const host = player(v.hostId);
   const ready = v.players.filter((p) => p.connected).length;
   let wait;
@@ -278,6 +280,13 @@ function renderGame() {
   const chip = $('#tvg-drawer');
   chip.hidden = !(v.phase === 'drawing' && drawer);
   if (drawer) chip.innerHTML = `${avatar(drawer)}<span>${esc(drawer.name)} is drawing</span>`;
+  const c = t && t.chaos && CHAOS[t.chaos];
+  const cchip = $('#tvg-chaos');
+  cchip.hidden = !(v.phase === 'drawing' && c);
+  if (c && cchip.dataset.rule !== t.chaos) {
+    cchip.dataset.rule = t.chaos;
+    cchip.innerHTML = `${c.svg}<span><b>${c.label}</b><small>${c.desc}</small></span>`;
+  }
 
   renderPlayers();
   renderOverlay();
@@ -315,6 +324,7 @@ function renderOverlay() {
       <div class="tvo-kicker">Round ${v.round} of ${v.rounds}</div>
       ${drawer ? avatar(drawer) : ''}
       <h2>${esc(drawer ? drawer.name : 'Someone')} is picking a word<span class="dots"><i>.</i><i>.</i><i>.</i></span></h2>
+      ${t && t.chaos && CHAOS[t.chaos] ? `<div class="tv-chaos-card"><span class="tv-chaos-icon">${CHAOS[t.chaos].svg}</span><div><div class="tv-chaos-kicker">Chaos card</div><b>${CHAOS[t.chaos].label}</b><span>${CHAOS[t.chaos].desc}</span></div></div>` : ''}
       <div class="tvo-foot-line">Phones out, get ready to guess!</div>
     </div>`;
   } else if (v.phase === 'reveal' && t) {
@@ -329,7 +339,7 @@ function renderOverlay() {
     else if (t.word) badge = `<div class="tvo-badge${guessed ? '' : ' none'}">${guessed ? `${guessed} guessed it` : 'Nobody got it!'}</div>`;
     html = `<div class="tvo-card tvo-reveal">
       <div class="tvo-reveal-main">${title}</div>
-      <div class="tvo-reveal-side">${badge}
+      <div class="tvo-reveal-side">${badge}${t.chaos && CHAOS[t.chaos] && t.word ? `<div class="tvo-foot-line">Drawn with: <b>${CHAOS[t.chaos].label}</b></div>` : ''}
         <div class="tvo-foot-line">${t.nextDrawerName ? `Up next: <b>${esc(t.nextDrawerName)}</b>` : 'Final scores coming up…'}</div></div>
     </div>`;
   }
@@ -545,7 +555,7 @@ function updateSlideLikes() {
   const counts = T.likes.counts || [];
   const n = counts[T.slide] || 0;
   const fav = favouriteIndex(counts) === T.slide;
-  $('#tvo-by').innerHTML = `${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot })} drawn by ${esc(d.drawerName)}${
+  $('#tvo-by').innerHTML = `${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot })} drawn by ${esc(d.drawerName)}${d.chaos && CHAOS[d.chaos] ? ` · <span class="tvo-chaos">${CHAOS[d.chaos].svg}${CHAOS[d.chaos].label}</span>` : ''}${
     n ? ` · <span class="tvo-likes">${STICKERS.love.svg}${n}</span>` : ''
   }`;
   const ribbon = $('#tvo-fav');

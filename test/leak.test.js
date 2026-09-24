@@ -10,7 +10,7 @@ const { setup, mulberry32 } = require('./helpers');
 // Fixed-vocabulary fields (enums and ids) can't carry the word, and would cause false
 // positives ("hat" is inside "chat"). Every other string is checked, and masks are joined
 // into one string so a fully revealed mask would count as a leak too.
-const ENUM_KEYS = new Set(['kind', 'sub', 'color', 'id', 'from', 'me', 'hostId', 'drawerId', 'code', 'pack', 'phase', 'reason', 'difficulty', 't']);
+const ENUM_KEYS = new Set(['kind', 'sub', 'color', 'id', 'from', 'me', 'hostId', 'drawerId', 'code', 'pack', 'phase', 'reason', 'difficulty', 't', 'chaos']);
 
 function textValues(v, out = [], key = '') {
   if (typeof v === 'string') {
@@ -42,6 +42,7 @@ function playAndCheck(seed) {
   const rnd = mulberry32(seed * 31 + 1);
   room.updateSettings(ids[0], { rounds: 2 });
   if (seed % 2 === 0) room.addBot(ids[0]); // bots chat and guess too
+  if (seed % 3 === 0) room.updateSettings(ids[0], { chaos: true });
   // A TV screen watches every game: it must never learn the word before the reveal either.
   const tv = env.manager.watch(room.code);
   room.connectWatcher(tv.id);

@@ -34,7 +34,7 @@ function startServer() {
 }
 
 function textValues(v, out = [], key = '') {
-  const ENUM_KEYS = new Set(['kind', 'sub', 'color', 'id', 'from', 'me', 'hostId', 'drawerId', 'code', 'pack', 'phase', 'reason', 'difficulty', 't']);
+  const ENUM_KEYS = new Set(['kind', 'sub', 'color', 'id', 'from', 'me', 'hostId', 'drawerId', 'code', 'pack', 'phase', 'reason', 'difficulty', 't', 'chaos']);
   if (typeof v === 'string') {
     if (!ENUM_KEYS.has(key)) out.push(v);
   } else if (Array.isArray(v)) {

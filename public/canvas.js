@@ -248,6 +248,7 @@ export class DrawInput {
     this.tool = 'brush';
     this.color = 0;
     this.sizeIndex = 1;
+    this.chaos = null; // the turn's chaos twist, if any (the server enforces the same rules)
     this.active = null;
     this.pending = [];
     this.flushTimer = null;
@@ -262,8 +263,27 @@ export class DrawInput {
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  // The tool actually used under the current chaos twist.
+  get activeTool() {
+    const c = this.chaos;
+    if (c === 'oneline' || c === 'tiny') return 'brush';
+    if (c === 'noundo' && this.tool === 'eraser') return 'brush';
+    return this.tool;
+  }
+
   get size() {
-    return (this.tool === 'eraser' ? ERASER_SIZES : BRUSH_SIZES)[this.sizeIndex];
+    if (this.chaos === 'tiny') return BRUSH_SIZES[0];
+    return (this.activeTool === 'eraser' ? ERASER_SIZES : BRUSH_SIZES)[this.sizeIndex];
+  }
+
+  get strokeColor() {
+    if (this.activeTool === 'eraser') return WHITE;
+    return this.chaos === 'ink' ? 0 : this.color;
+  }
+
+  // One line: once there's a stroke, that's it.
+  get lineUsed() {
+    return this.chaos === 'oneline' && this.board.ops.some((o) => o.t === 's');
   }
 
   setEnabled(on) {
@@ -273,18 +293,24 @@ export class DrawInput {
 
   toCanvas(e) {
     const r = this.canvas.getBoundingClientRect();
-    const x = Math.round(((e.clientX - r.left) / r.width) * W);
+    let x = Math.round(((e.clientX - r.left) / r.width) * W);
     const y = Math.round(((e.clientY - r.top) / r.height) * H);
-    return [Math.max(0, Math.min(W - 1, x)), Math.max(0, Math.min(H - 1, y))];
+    x = Math.max(0, Math.min(W - 1, x));
+    if (this.chaos === 'mirror') x = W - 1 - x;
+    return [x, Math.max(0, Math.min(H - 1, y))];
   }
 
   down(e) {
     if (!this.enabled || this.active) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     e.preventDefault();
+    if (this.lineUsed) {
+      this.hooks.onOneLine && this.hooks.onOneLine();
+      return;
+    }
     const [x, y] = this.toCanvas(e);
-    if (this.tool === 'fill') {
-      const op = { t: 'f', x, y, c: this.color };
+    if (this.activeTool === 'fill') {
+      const op = { t: 'f', x, y, c: this.strokeColor };
       this.board.apply(op);
       this.send(op);
       return;
@@ -300,7 +326,7 @@ export class DrawInput {
     this.active = { pointerId: e.pointerId, id };
     this.lastX = x;
     this.lastY = y;
-    const op = { t: 'b', id, c: this.tool === 'eraser' ? WHITE : this.color, s: this.size, p: [x, y] };
+    const op = { t: 'b', id, c: this.strokeColor, s: this.size, p: [x, y] };
     this.board.apply(op);
     this.send(op);
     this.flushTimer = setInterval(() => this.flush(), 40);
@@ -348,17 +374,22 @@ export class DrawInput {
     clearInterval(this.flushTimer);
     this.flushTimer = null;
     this.active = null;
+    if (this.hooks.onStrokeEnd) this.hooks.onStrokeEnd();
+  }
+
+  get canTakeBack() {
+    return this.chaos !== 'oneline' && this.chaos !== 'noundo';
   }
 
   undo() {
-    if (!this.enabled || !this.board.ops.length) return;
+    if (!this.enabled || !this.board.ops.length || !this.canTakeBack) return;
     this.finish();
     this.board.apply({ t: 'u' });
     this.send({ t: 'u' });
   }
 
   clear() {
-    if (!this.enabled) return;
+    if (!this.enabled || !this.canTakeBack) return;
     this.finish();
     const last = this.board.ops[this.board.ops.length - 1];
     if (!this.board.ops.length || (last && last.t === 'c')) return;

@@ -1,6 +1,6 @@
 import { Board, DrawInput, PALETTE, COLOR_NAMES, replay, exportPng, exportPoster } from './canvas.js';
 import { sfx, isMuted, setMuted } from './sound.js';
-import { STICKERS, STICKER_IDS, REACT_ICON, AWARD_ICONS } from './stickers.js';
+import { STICKERS, STICKER_IDS, REACT_ICON, AWARD_ICONS, CHAOS } from './stickers.js';
 import { syncCards } from './ui.js';
 import { AvatarPad, setAvatars, setAvatar } from './avatar.js';
 
@@ -524,6 +524,7 @@ function renderLobby() {
   seg($('#set-rounds'), [2, 3, 4, 5].map((n) => [n, String(n)]), v.settings.rounds, host, (n) => updateSettings({ rounds: n }));
   seg($('#set-time'), [60, 80, 100].map((n) => [n, `${n}s`]), v.settings.drawTime, host, (n) => updateSettings({ drawTime: n }));
   seg($('#set-pack'), PACKS, v.settings.pack, host, (id) => updateSettings({ pack: id }), 'chip');
+  seg($('#set-chaos'), [[false, 'Off'], [true, 'On']], !!v.settings.chaos, host, (on) => updateSettings({ chaos: on }));
   $('#settings-lock').hidden = host;
   const custom = v.settings.pack === 'custom';
   $('#custom-box').hidden = !(custom && host);
@@ -680,6 +681,10 @@ const drawInput = new DrawInput(board, canvas, (op) => socket.emit('draw', op), 
     if (!S.inkWarned) toast('Ink limit reached for this turn!');
     S.inkWarned = true;
   },
+  onOneLine: () => toast("That was your one line! Now wait for the guesses."),
+  onStrokeEnd: () => {
+    if (drawInput.chaos === 'oneline' && S.view) renderGame();
+  },
 });
 
 function renderGame() {
@@ -714,12 +719,34 @@ function renderGame() {
   renderPlayers();
   renderOverlay();
 
+  // Chaos twist: a chip for everyone, the rules for the drawer.
+  const rule = t && t.chaos && CHAOS[t.chaos] ? t.chaos : null;
+  const chip = $('#chaos-chip');
+  chip.hidden = !(drawing && rule);
+  if (rule && chip.dataset.rule !== rule) {
+    chip.dataset.rule = rule;
+    chip.innerHTML = `${CHAOS[rule].svg}<span>${CHAOS[rule].label}</span>`;
+  }
+  const myTurn = amDrawer && drawing;
+  drawInput.chaos = myTurn ? rule : null;
+  const blind = $('#blindfold');
+  blind.hidden = !(myTurn && rule === 'blind');
+  if (!blind.hidden && !blind.childElementCount) {
+    blind.innerHTML = `<div class="blind-card">${CHAOS.blind.svg}<b>You're blindfolded!</b><span>Keep drawing: everyone else can see it.</span></div>`;
+  }
+
   // Toolbar + input
-  const canDraw = amDrawer && drawing;
-  $('#toolbar').hidden = !canDraw;
+  const canDraw = myTurn && (!drawInput.lineUsed || !!drawInput.active);
+  $('#toolbar').hidden = !myTurn;
+  $('#toolbar').dataset.chaos = myTurn && rule ? rule : '';
   drawInput.setEnabled(canDraw);
   canvas.classList.toggle('can-draw', canDraw);
-  if (canDraw) renderToolbar();
+  if (myTurn) {
+    if (rule === 'ink' && drawInput.tool !== 'eraser') drawInput.color = 0;
+    if (rule === 'tiny') drawInput.sizeIndex = 0;
+    if (drawInput.activeTool !== drawInput.tool) drawInput.tool = drawInput.activeTool;
+    renderToolbar();
+  }
 
   const input = $('#chat-input');
   const inTurn = v.phase === 'choosing' || drawing;
@@ -808,9 +835,10 @@ function renderOverlay() {
   let key = `${v.phase}:${t ? t.id : ''}`;
   if (v.phase === 'choosing') {
     if (amDrawer && t.choices) {
-      html = `<div class="ov-card ov-choose">
+      html = `<div class="ov-card ov-choose${t.chaos ? ' has-chaos' : ''}">
         <div class="ov-kicker">Round ${v.round} of ${v.rounds} · Your turn!</div>
         <h2 class="ov-title">Pick a word to draw</h2>
+        ${chaosCard(t.chaos, true)}
         <div class="choices">${t.choices
           .map((c, i) => `<button type="button" class="choice choice-${c.difficulty}" data-choice="${i}">
               <span class="choice-word">${esc(c.word)}</span>
@@ -824,6 +852,7 @@ function renderOverlay() {
         <div class="ov-kicker">Round ${v.round} of ${v.rounds}</div>
         ${drawer ? avatar(drawer, 'avatar-xl') : ''}
         <h2 class="ov-title">${esc(drawer ? drawer.name : 'Someone')} is picking a word<span class="dots"><i>.</i><i>.</i><i>.</i></span></h2>
+        ${chaosCard(t && t.chaos, false)}
         <div class="ov-foot">Get ready to guess!</div>
       </div>`;
     }
@@ -838,8 +867,9 @@ function renderOverlay() {
     if (t.reason === 'drawerLeft' && !t.word) title = `<h2 class="ov-title">${esc(drawer ? drawer.name : 'The drawer')} left — turn skipped</h2>`;
     else title = `<div class="ov-kicker">The word was</div><h2 class="ov-word">${esc(t.word || '')}</h2>`;
     const sub = t.reason === 'allGuessed' ? '<div class="ov-badge">Everyone got it! 🎉</div>' : t.reason === 'drawerLeft' && t.word ? '<div class="ov-badge">The drawer disconnected</div>' : '';
+    const drewWith = t.chaos && CHAOS[t.chaos] && t.word ? `<div class="ov-chaos-note">${CHAOS[t.chaos].svg}Drawn with: ${CHAOS[t.chaos].label}</div>` : '';
     html = `<div class="ov-card ov-reveal">
-      ${title}${sub}
+      ${title}${sub}${drewWith}
       ${rows ? `<ul class="rv-list">${rows}</ul>` : t.word ? '<p class="ov-empty">Nobody guessed it this time 😅</p>' : ''}
       ${t.nextDrawerName ? `<div class="ov-foot">Up next: <b>${esc(t.nextDrawerName)}</b></div>` : '<div class="ov-foot">Final scores coming up…</div>'}
     </div>`;
@@ -852,6 +882,13 @@ function renderOverlay() {
     ov.innerHTML = html;
     ov.hidden = !html;
   }
+}
+
+// The twist for this turn, shown while the word is being picked.
+function chaosCard(rule, forDrawer) {
+  const c = rule && CHAOS[rule];
+  if (!c) return '';
+  return `<div class="ov-chaos"><span class="ov-chaos-icon">${c.svg}</span><div class="ov-chaos-text"><div class="ov-chaos-kicker">Chaos card</div><b>${c.label}</b><span>${forDrawer ? c.tip : c.desc}</span></div></div>`;
 }
 
 $('#overlay').addEventListener('click', async (e) => {
@@ -1164,6 +1201,7 @@ function renderGallery() {
           <div class="frame-word">${esc(d.word)}</div>
           <div class="frame-by">${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} <span>${esc(d.drawerName)}</span></div>
           <div class="frame-meta">Round ${d.round} · ${d.guessedCount ? `${d.guessedCount} guessed it` : 'nobody guessed it'}</div>
+          ${d.chaos && CHAOS[d.chaos] ? `<div class="frame-chaos">${CHAOS[d.chaos].svg}${CHAOS[d.chaos].label}</div>` : ''}
         </figcaption>
         <div class="frame-actions">
           <button type="button" class="like-btn" data-like="${i}" aria-pressed="false" aria-label="Like ${esc(d.word)}">${STICKERS.love.svg}<span class="like-n">0</span></button>
@@ -1367,7 +1405,7 @@ function openViewer(i, auto = slideshow) {
   $('#viewer').hidden = false;
   document.body.classList.add('viewer-open');
   $('#viewer-word').textContent = d.word;
-  $('#viewer-by').innerHTML = `${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} drawn by ${esc(d.drawerName)} · ${viewerIndex + 1} / ${drawings.length}`;
+  $('#viewer-by').innerHTML = `${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} drawn by ${esc(d.drawerName)}${d.chaos && CHAOS[d.chaos] ? ` · ${CHAOS[d.chaos].label}` : ''} · ${viewerIndex + 1} / ${drawings.length}`;
   $('#viewer').classList.toggle('is-slideshow', slideshow);
   if (viewerStop) viewerStop();
   viewerStop = replay($('#viewer-canvas'), d.ops, {

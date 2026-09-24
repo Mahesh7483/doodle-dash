@@ -66,3 +66,53 @@ export const AWARD_ICONS = {
   crowd: s(`<path d="M24 44S7 34 7 22.5a8.5 8.5 0 0 1 17-2.8 8.5 8.5 0 0 1 17 2.8C41 34 24 44 24 44z" fill="#e8384f" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
     <path d="M13 11.5l4 3.5 7-10 7 10 4-3.5-1.5 8.5H14.5z" fill="#ffd23f" stroke="${INK}" stroke-width="2.6" stroke-linejoin="round"/>`),
 };
+
+// Chaos round twists: name, what everyone reads, what the drawer reads, and an icon.
+export const CHAOS = {
+  oneline: {
+    label: 'One line',
+    desc: 'The whole drawing is a single stroke. No lifting!',
+    tip: "One stroke only: don't lift your finger until you're done!",
+    svg: s(`<path d="M5 33c4-12 9-19 13-11s-3 16 4 16 7-24 13-24 1 20 7 14 2-9 2-9" fill="none" stroke="${INK}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="5" cy="33" r="4" fill="#ff5c39" stroke="${INK}" stroke-width="2"/>`),
+  },
+  blind: {
+    label: 'Blindfold',
+    desc: "The drawer can't see what they're drawing.",
+    tip: "You're blindfolded: you won't see your drawing, but everyone else will!",
+    svg: s(`<circle cx="24" cy="26" r="18" fill="#ffd23f" stroke="${INK}" stroke-width="3"/>
+      <path d="M5.5 19.5h37v10h-37z" fill="${INK}"/><path d="M42 21l4-4M42 27l4 3" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>
+      <path d="M17 36q7 5 14 0" fill="none" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>`),
+  },
+  mirror: {
+    label: 'Mirror',
+    desc: 'Everything the drawer draws comes out flipped.',
+    tip: 'Your drawing comes out flipped left to right!',
+    svg: s(`<path d="M20 10L5 38h15z" fill="#5ec8f2" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M28 10l15 28H28z" fill="#fff" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M24 4v40" stroke="#8e5cf7" stroke-width="3" stroke-dasharray="4 4" stroke-linecap="round"/>`),
+  },
+  tiny: {
+    label: 'Tiny brush',
+    desc: 'Only the thinnest brush, and no fill.',
+    tip: 'Only the thinnest brush, and no fill bucket. Get detailed!',
+    svg: s(`<path d="M31 6l11 11-22 22H9V28z" fill="#ffd23f" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M9 28l11 11" stroke="${INK}" stroke-width="3"/><path d="M9 39l-3 3" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="40" cy="41" r="2.4" fill="${INK}"/>`),
+  },
+  noundo: {
+    label: 'No take-backs',
+    desc: 'No undo, no eraser, no starting over.',
+    tip: 'No undo, no eraser, no clearing. Make every line count!',
+    svg: s(`<path d="M17 13L8 22l9 9" fill="none" stroke="${INK}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M8 22h19a11 11 0 010 22h-6" fill="none" stroke="${INK}" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="35" cy="13" r="9" fill="#e8384f" stroke="${INK}" stroke-width="2.5"/><path d="M31 9l8 8M39 9l-8 8" stroke="#fff" stroke-width="3" stroke-linecap="round"/>`),
+  },
+  ink: {
+    label: 'Ink only',
+    desc: 'Black ink and nothing else.',
+    tip: 'Black ink only. Colours are for quitters!',
+    svg: s(`<path d="M24 4C20 14 10 22 10 31a14 14 0 0028 0c0-9-10-17-14-27z" fill="${INK}" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
+      <path d="M17 31a7 7 0 004 6" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>`),
+  },
+};
