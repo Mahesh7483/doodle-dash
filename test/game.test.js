@@ -625,3 +625,78 @@ test('reactions: a fixed emoji set, sent to everyone, rate-limited', () => {
   env.advance(2100);
   assert.ok(room.react(ids[1], 'lol').ok);
 });
+
+test('awards at game over: fastest guess, best artist, early bird, near misses, abstract artist', () => {
+  const env = setup({ players: 3 });
+  const { room, ids } = env;
+  room.updateSettings(ids[0], { rounds: 2 });
+  room.start(ids[0]);
+  const draw = (pid) => room.draw(pid, { t: 'b', id: 1, c: 0, s: 10, p: [10, 10, 20, 20] });
+  // Turn 1 (P0 draws): P1 guesses fast and first, P2 later.
+  let w = chooseDifficulty(env, 'easy');
+  draw(ids[0]);
+  env.advance(2000);
+  room.chat(ids[1], w);
+  env.advance(6000);
+  room.chat(ids[2], w);
+  env.run(5000);
+  // Turn 2 (P1 draws): P2 has two near misses, nobody guesses.
+  w = chooseDifficulty(env, 'medium');
+  draw(ids[1]);
+  const near = w.slice(0, -1) + (w.endsWith('z') ? 'y' : 'z');
+  if (w.replace(/ /g, '').length >= 4) {
+    room.chat(ids[2], near);
+    env.advance(1100);
+    room.chat(ids[2], w.slice(0, -1));
+  }
+  env.run(80000);
+  env.run(5000);
+  // Everything else: nobody draws or guesses.
+  while (room.phase !== 'gameOver') env.run(1000, 1000);
+  const view = env.lastState(ids[0]);
+  const byId = Object.fromEntries(view.awards.map((a) => [a.id, a]));
+  assert.equal(byId.fastest.playerId, ids[1]);
+  assert.match(byId.fastest.detail, /in 2\.0 s/);
+  assert.equal(byId.artist.playerId, ids[0]);
+  assert.match(byId.artist.detail, /2 correct guesses/);
+  assert.equal(byId.first.playerId, ids[1]);
+  if (byId.close) assert.equal(byId.close.playerId, ids[2]);
+  assert.equal(byId.abstract.playerId, ids[1], 'the drawing nobody guessed');
+});
+
+test('gallery likes: after the game only, not your own drawing, live counts for everyone', () => {
+  const env = setup({ players: 2 });
+  const { room, ids, sent } = env;
+  room.updateSettings(ids[0], { rounds: 2 });
+  room.start(ids[0]);
+  for (let i = 0; i < 4; i++) {
+    const drawer = room.turn.drawerId;
+    chooseDifficulty(env, 'easy');
+    room.draw(drawer, { t: 'b', id: 1, c: 0, s: 10, p: [10, 10, 20, 20] });
+    assert.equal(room.like(ids[0], 0).error, 'You can like drawings after the game.');
+    env.run(80000);
+    env.run(5000);
+  }
+  assert.equal(room.phase, 'gameOver');
+  assert.equal(room.gallery.length, 4);
+  const mine = room.gallery.findIndex((d) => d.drawerId === ids[0]);
+  const theirs = room.gallery.findIndex((d) => d.drawerId === ids[1]);
+  assert.equal(room.like(ids[0], mine).error, "You can't like your own drawing.");
+  sent.length = 0;
+  assert.equal(room.like(ids[0], theirs).count, 1);
+  const forThem = sent.filter((m) => m.pid === ids[1] && m.event === 'likes').at(-1).data;
+  assert.equal(forThem.counts[theirs], 1);
+  assert.deepEqual(forThem.mine, []);
+  const forMe = sent.filter((m) => m.pid === ids[0] && m.event === 'likes').at(-1).data;
+  assert.deepEqual(forMe.mine, [theirs]);
+  assert.equal(room.like(ids[0], theirs, false).count, 0, 'unlike');
+  assert.equal(room.like(ids[0], 99).error, 'No such drawing.');
+  // Rejoining during game over gets the gallery with likes and awards.
+  room.disconnect(ids[1]);
+  sent.length = 0;
+  room.connect(ids[1]);
+  const g = sent.find((m) => m.pid === ids[1] && m.event === 'gallery').data;
+  assert.equal(g.drawings.length, 4);
+  assert.ok(Array.isArray(g.awards));
+  assert.equal(g.likes.counts.length, 4);
+});

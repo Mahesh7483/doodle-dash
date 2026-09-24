@@ -47,3 +47,22 @@ export const STICKER_IDS = Object.keys(STICKERS);
 
 // Smiley for the "send a reaction" button, drawn like the other icons.
 export const REACT_ICON = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5q3.5 3.5 7 0"/><circle cx="9" cy="10" r=".6" fill="currentColor"/><circle cx="15" cy="10" r=".6" fill="currentColor"/></svg>`;
+
+// Award icons for the podium.
+export const AWARD_ICONS = {
+  fastest: s(`<path d="M28 3.5L9 27.5h13.5l-4.5 17 21.5-26H26z" fill="#ffd23f" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>`),
+  artist: s(`<path d="M24 5C12.4 5 4 13.2 4 23.5 4 33 11.5 42.5 22 42.5c3 0 4.6-1.7 4.6-3.8 0-2.6-2.4-3.4-2.4-5.9 0-2.4 2-3.9 4.4-3.9H34c6 0 10-4.3 10-9.8C44 11 35.2 5 24 5z" fill="#fff6e5" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
+    <circle cx="13.5" cy="22" r="3.6" fill="#e8384f" stroke="${INK}" stroke-width="2"/><circle cx="18.5" cy="13" r="3.6" fill="#ffd23f" stroke="${INK}" stroke-width="2"/>
+    <circle cx="29" cy="11.5" r="3.6" fill="#2bb673" stroke="${INK}" stroke-width="2"/><circle cx="36.5" cy="19" r="3.6" fill="#2f6fe4" stroke="${INK}" stroke-width="2"/>`),
+  first: s(`<path d="M9 33.5a15 15 0 0 1 30 0z" fill="#ffd23f" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M4 34h40" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>
+    <path d="M24 5v6M9.5 11l4 4.5M38.5 11l-4 4.5M3.5 23.5h5M39.5 23.5h5" stroke="#ff8a2a" stroke-width="3" stroke-linecap="round"/>
+    <path d="M14 40.5h20" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>`),
+  close: s(`<circle cx="22" cy="26" r="17" fill="#e8384f" stroke="${INK}" stroke-width="3"/><circle cx="22" cy="26" r="11" fill="#fff" stroke="${INK}" stroke-width="2.5"/>
+    <circle cx="22" cy="26" r="5" fill="#e8384f" stroke="${INK}" stroke-width="2.5"/>
+    <path d="M44 4L29.5 19" stroke="${INK}" stroke-width="3.2" stroke-linecap="round"/><path d="M36.5 4.5l7.5-.5-.5 7.5" fill="none" stroke="${INK}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>`),
+  abstract: s(`<path d="M24 24.5c0-2.5 3.5-2.5 3.5.5 0 4-6.5 5-8 .5-2-5.5 5-10 10.5-7 7 4 5.5 15-3 17-9.5 2.3-17-5-15-14 2.3-10.5 14.5-15.5 24-9.5" fill="none" stroke="#8e5cf7" stroke-width="4" stroke-linecap="round"/>
+    <path d="M24 24.5c0-2.5 3.5-2.5 3.5.5 0 4-6.5 5-8 .5-2-5.5 5-10 10.5-7 7 4 5.5 15-3 17-9.5 2.3-17-5-15-14 2.3-10.5 14.5-15.5 24-9.5" fill="none" stroke="${INK}" stroke-width="1.2" stroke-linecap="round" opacity=".35"/>`),
+  crowd: s(`<path d="M24 44S7 34 7 22.5a8.5 8.5 0 0 1 17-2.8 8.5 8.5 0 0 1 17 2.8C41 34 24 44 24 44z" fill="#e8384f" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M13 11.5l4 3.5 7-10 7 10 4-3.5-1.5 8.5H14.5z" fill="#ffd23f" stroke="${INK}" stroke-width="2.6" stroke-linejoin="round"/>`),
+};

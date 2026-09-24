@@ -45,6 +45,8 @@
       <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></symbol>
       <symbol id="i-qr" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2M18 14h2"/></symbol>
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7.5 4.5l11.5 7.5-11.5 7.5z" fill="currentColor"/></symbol>
+      <symbol id="i-poster" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M3.5 12h17M12 3.5v17"/></symbol>
     </defs>
   </svg>
 
@@ -261,6 +263,10 @@
           <p class="start-hint" data-wait-host hidden></p>
           <button class="btn btn-link" type="button" data-leave>Leave room</button>
         </div>
+        <section id="awards-wrap" class="awards-wrap" hidden>
+          <h2 class="awards-title">Awards</h2>
+          <div id="awards" class="award-grid"></div>
+        </section>
       </div>
     </section>
 
@@ -277,6 +283,11 @@
         <div class="gallery-head">
           <h1 class="gallery-title">The Gallery</h1>
           <p id="gallery-sub" class="gallery-sub"></p>
+          <div class="gallery-tools">
+            <button id="slideshow-btn" class="btn btn-secondary btn-sm" type="button"><svg class="icon icon-sm"><use href="#i-play"/></svg> Slideshow</button>
+            <button id="poster-btn" class="btn btn-primary btn-sm" type="button"><svg class="icon icon-sm"><use href="#i-poster"/></svg> Save poster</button>
+          </div>
+          <p id="like-hint" class="like-hint" hidden>Tap ♥ on your favourites: the most-loved drawing gets the <b>Crowd favourite</b> crown.</p>
         </div>
         <div id="gallery-grid" class="gallery-grid"></div>
         <div class="gallery-actions">

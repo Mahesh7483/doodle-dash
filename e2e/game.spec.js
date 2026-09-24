@@ -244,9 +244,10 @@ test('full game: desktop host + phone guest (joins via /r/CODE), draw, guess, re
   await expect(host.locator('.pod')).toHaveCount(2);
   await expect(host.locator('#winner-title')).toContainText(/wins!|tie/);
   await expect(host.locator('#to-gallery-btn')).toContainText('(4)');
-  await host.waitForTimeout(1200);
+  await host.waitForTimeout(1800);
   await shot(host, 'desktop-10-podium');
   await shot(guest, 'phone-10-podium');
+  await guest.screenshot({ path: path.join(SHOTS, 'phone-10b-podium-full.png'), fullPage: true });
   // Scores on the podium match the server's final scores.
   const finals = await host.evaluate(() => window.__dd.S.view.players.map((p) => p.score));
   expect(finals.every((s) => s > 0)).toBe(true);
@@ -275,6 +276,26 @@ test('full game: desktop host + phone guest (joins via /r/CODE), draw, guess, re
   await guest.waitForTimeout(3000);
   await shot(guest, 'phone-11-gallery');
   await guest.screenshot({ path: path.join(SHOTS, 'phone-11b-gallery-full.png'), fullPage: true });
+
+  // Awards on the podium
+  await expect(host.locator('#awards .award')).not.toHaveCount(0);
+  await expect(host.locator('#awards')).toContainText('Crowd favourite');
+
+  // Likes: Ana likes one of Ben's drawings; Ben sees the count and the crown.
+  const bensFrame = host.locator('.frame', { has: host.locator('.frame-by', { hasText: 'Ben' }) }).first();
+  const idx = await bensFrame.getAttribute('data-index');
+  await expect(host.locator('.frame', { has: host.locator('.frame-by', { hasText: 'Ana' }) }).first().locator('.like-btn')).toBeDisabled();
+  await bensFrame.locator('.like-btn').click();
+  await expect(bensFrame.locator('.like-btn')).toHaveAttribute('aria-pressed', 'true');
+  await expect(guest.locator(`.frame[data-index="${idx}"] .like-n`)).toHaveText('1');
+  await expect(guest.locator(`.frame[data-index="${idx}"] .fav-ribbon`)).toBeVisible();
+  await host.waitForTimeout(400);
+  await shot(host, 'desktop-11b-gallery-likes');
+
+  // Poster: every drawing on one PNG.
+  const [poster] = await Promise.all([host.waitForEvent('download'), host.locator('#poster-btn').click()]);
+  expect(poster.suggestedFilename()).toMatch(/^doodle-dash-.+-gallery\.png$/);
+  fs.copyFileSync(await poster.path(), path.join(SHOTS, 'saved-poster.png'));
 
   // Save PNG downloads a real PNG.
   const [download] = await Promise.all([host.waitForEvent('download'), host.locator('[data-save="0"]').click()]);

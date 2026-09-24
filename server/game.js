@@ -36,6 +36,7 @@ const BOT_STUMPED = ['no idea 😅', 'that was a tough one!', 'hmm, what was it?
 // Live reactions that float over the canvas: sticker ids from a fixed set (drawn by the client).
 const REACTIONS = ['lol', 'fire', 'love', 'wow', 'hmm', 'star'];
 const REACTIONS_PER_2S = 5;
+const LIKES_PER_2S = 8;
 
 const DEFAULT_TIMING = {
   chooseMs: 15000,
@@ -186,6 +187,8 @@ class Room {
     this.endsAt = 0;
     this.phaseMs = 0;
     this.gallery = [];
+    this.likes = []; // per gallery drawing: Set of player ids who liked it
+    this.stats = new Map(); // per player, for the end-of-game awards
     this.usedWords = new Set();
     this.notice = null;
     this.emptySince = this.now();
@@ -412,6 +415,9 @@ class Room {
       p.guessed = false;
     }
     this.gallery = [];
+    this.likes = [];
+    this.stats = new Map();
+    this.botLikes = null;
     this.usedWords = new Set();
     this.round = 1;
     this.drawOrder = this.players.map((p) => p.id);
@@ -610,6 +616,10 @@ class Room {
 
   // Runs every tick: bots choose, draw, guess and react.
   tickBots(now) {
+    if (this.phase === 'gameOver' && this.gallery.length) {
+      this.botLikeStep(now);
+      return;
+    }
     const t = this.turn;
     if (!t || !this.players.some((p) => p.bot)) return;
     const drawer = this.drawer;
@@ -654,6 +664,27 @@ class Room {
         const bot = bots[Math.floor(this.rng() * bots.length)];
         const lines = t.correct === 0 && t.word ? BOT_STUMPED : BOT_REACTIONS;
         this.chat(bot.id, lines[Math.floor(this.rng() * lines.length)]);
+      }
+    }
+  }
+
+  // After the game, each bot likes one or two drawings (never its own), a few seconds apart.
+  botLikeStep(now) {
+    if (!this.botLikes) {
+      this.botLikes = [];
+      for (const bot of this.players.filter((p) => p.bot)) {
+        const options = this.gallery.map((d, i) => i).filter((i) => this.gallery[i].drawerId !== bot.id);
+        const n = Math.min(options.length, 1 + (this.rng() < 0.5 ? 1 : 0));
+        for (let k = 0; k < n; k++) {
+          const i = options.splice(Math.floor(this.rng() * options.length), 1)[0];
+          this.botLikes.push({ botId: bot.id, index: i, at: now + 2500 + this.rng() * 7000 });
+        }
+      }
+    }
+    for (const l of this.botLikes) {
+      if (!l.done && now >= l.at) {
+        l.done = true;
+        if (this.get(l.botId)) this.like(l.botId, l.index, true);
       }
     }
   }
@@ -723,6 +754,9 @@ class Room {
       const lastClear = t.ops.map((o) => o.t).lastIndexOf('c');
       const ops = t.ops.slice(lastClear + 1).map(wireOp).filter((o) => o.t !== 'c');
       if (ops.length) {
+        const drawer = this.drawer;
+        if (drawer && t.correct === 0) this.stat(drawer).stumped++;
+        this.likes.push(new Set());
         this.gallery.push({
           word: t.word,
           difficulty: t.difficulty,
@@ -749,13 +783,68 @@ class Room {
     this.phase = 'gameOver';
     this.turn = null;
     this.endsAt = 0;
+    this.awards = this.computeAwards();
     this.system('Game over!', 'round');
     this.broadcastState();
-    for (const p of this.connected()) this.send(p.id, 'gallery', this.galleryPayload());
+    for (const p of this.connected()) if (!p.bot) this.send(p.id, 'gallery', this.galleryPayload(p.id));
   }
 
-  galleryPayload() {
-    return { drawings: this.gallery };
+  galleryPayload(pid) {
+    return { drawings: this.gallery, awards: this.awards || [], likes: this.likesFor(pid) };
+  }
+
+  // Fun titles for the podium. Each goes to the best player for it, if anyone qualifies.
+  computeAwards() {
+    const all = [...this.stats.values()];
+    const score = (id) => (this.get(id) ? this.get(id).score : 0);
+    const best = (value, min = 1) => {
+      let winner = null;
+      for (const st of all) {
+        const v = value(st);
+        if (v == null || v < min) continue;
+        if (!winner || v > winner.v || (v === winner.v && score(st.id) > score(winner.st.id))) winner = { st, v };
+      }
+      return winner;
+    };
+    const who = (st) => ({ playerId: st.id, name: st.name, color: st.color, bot: st.bot });
+    const out = [];
+    const fast = best((st) => (st.fastest ? -st.fastest.ms : null), -Infinity);
+    if (fast) {
+      const secs = Math.max(0.1, fast.st.fastest.ms / 1000).toFixed(1);
+      out.push({ id: 'fastest', title: 'Lightning fingers', ...who(fast.st), detail: `Guessed “${fast.st.fastest.word}” in ${secs} s` });
+    }
+    const artist = best((st) => st.guessedOnMine);
+    if (artist) out.push({ id: 'artist', title: 'Picasso', ...who(artist.st), detail: `${artist.v} correct guess${artist.v === 1 ? '' : 'es'} on their drawings` });
+    const first = best((st) => st.first);
+    if (first) out.push({ id: 'first', title: 'Early bird', ...who(first.st), detail: `First to guess ${first.v} time${first.v === 1 ? '' : 's'}` });
+    const close = best((st) => st.close);
+    if (close) out.push({ id: 'close', title: 'So close!', ...who(close.st), detail: `${close.v} near miss${close.v === 1 ? '' : 'es'}` });
+    const abstract = best((st) => st.stumped);
+    if (abstract) out.push({ id: 'abstract', title: 'Abstract artist', ...who(abstract.st), detail: `${abstract.v} drawing${abstract.v === 1 ? '' : 's'} nobody could guess` });
+    return out;
+  }
+
+  // ---- gallery likes (after the game)
+
+  likesFor(pid) {
+    return {
+      counts: this.likes.map((set) => set.size),
+      mine: this.likes.map((set, i) => (set.has(pid) ? i : -1)).filter((i) => i >= 0),
+    };
+  }
+
+  like(pid, index, on = true) {
+    const p = this.get(pid);
+    if (!p) return { error: 'Not in room.' };
+    if (this.phase !== 'gameOver') return { error: 'You can like drawings after the game.' };
+    const i = Number(index);
+    if (!Number.isInteger(i) || i < 0 || i >= this.gallery.length) return { error: 'No such drawing.' };
+    if (this.gallery[i].drawerId === pid) return { error: "You can't like your own drawing." };
+    if (!p.bot && this.rateLimited(p, 'likeTimes', LIKES_PER_2S, 2000)) return { error: 'Slow down!' };
+    if (on) this.likes[i].add(pid);
+    else this.likes[i].delete(pid);
+    for (const q of this.players) if (q.connected && !q.bot) this.send(q.id, 'likes', this.likesFor(q.id));
+    return { ok: true, count: this.likes[i].size };
   }
 
   // ---- chat & guessing
@@ -766,6 +855,13 @@ class Room {
     if (p[key].length >= perWindow) return true;
     p[key].push(now);
     return false;
+  }
+
+  stat(p) {
+    if (!this.stats.has(p.id)) {
+      this.stats.set(p.id, { id: p.id, name: p.name, color: p.color, bot: !!p.bot, fastest: null, first: 0, close: 0, correct: 0, guessedOnMine: 0, stumped: 0 });
+    }
+    return this.stats.get(p.id);
   }
 
   react(pid, emoji) {
@@ -804,6 +900,7 @@ class Room {
         return { ok: true, correct: true };
       }
       if (result === 'close') {
+        this.stat(p).close++;
         this.sendChat(pid, { ...msg, kind: 'close' });
         return { ok: true, close: true };
       }
@@ -824,8 +921,14 @@ class Room {
     p.guessed = true;
     p.score += pts;
     t.points[p.id] = (t.points[p.id] || 0) + pts;
+    const st = this.stat(p);
+    st.correct++;
+    if (t.correct === 0) st.first++;
+    const ms = now - t.drawStartedAt;
+    if (!st.fastest || ms < st.fastest.ms) st.fastest = { ms, word: t.word };
     t.correct++;
     const drawer = this.drawer;
+    if (drawer) this.stat(drawer).guessedOnMine++;
     if (drawer) {
       const dp = drawerPoints(1, t.mult);
       drawer.score += dp;
@@ -945,7 +1048,7 @@ class Room {
     if (this.turn && (this.phase === 'drawing' || this.phase === 'reveal')) {
       this.send(pid, 'drawSync', { turnId: this.turn.id, ops: this.turn.ops.map(wireOp) });
     }
-    if (this.phase === 'gameOver') this.send(pid, 'gallery', this.galleryPayload());
+    if (this.phase === 'gameOver') this.send(pid, 'gallery', this.galleryPayload(pid));
   }
 
   // ---- views
@@ -984,6 +1087,7 @@ class Room {
       notice: this.notice,
       turn: null,
     };
+    if (this.phase === 'gameOver') view.awards = this.awards || [];
     // Only the host gets the custom word list back, and only while in the lobby.
     if (pid === this.hostId && this.phase === 'lobby') view.customWords = this.customWords.join(', ');
     if (t && this.phase !== 'lobby' && this.phase !== 'gameOver') {

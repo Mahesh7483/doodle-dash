@@ -488,3 +488,135 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 export { paintBackground, BG };
+
+// ---------------------------------------------------------------------------
+// Poster: every drawing of the game on one shareable image.
+
+const HEART = new Path2D('M24 41.5S5.5 30.5 5.5 17a9.3 9.3 0 0 1 18.5-3 9.3 9.3 0 0 1 18.5 3c0 13.5-18.5 24.5-18.5 24.5z');
+
+export function exportPoster(drawings, { roomCode = '', likes = [], favourite = -1, winner = null, host = location.host } = {}) {
+  const cols = drawings.length <= 4 ? 2 : 3;
+  const rows = Math.ceil(drawings.length / cols);
+  const CW = 400, ART_W = 360, ART_H = 270, CH = ART_H + 128;
+  const PAD = 48, GAP = 34, HEAD = 230, FOOT = 110;
+  const width = PAD * 2 + cols * CW + (cols - 1) * GAP;
+  const height = HEAD + rows * CH + (rows - 1) * GAP + FOOT;
+  const c = document.createElement('canvas');
+  c.width = width;
+  c.height = height;
+  const ctx = c.getContext('2d');
+  const font = getComputedStyle(document.body).getPropertyValue('--font').trim() || 'sans-serif';
+  const INKC = '#1d1a2b';
+
+  ctx.fillStyle = '#fff6e5';
+  ctx.fillRect(0, 0, width, height);
+  ctx.fillStyle = '#efdcb8';
+  for (let y = 14; y < height; y += 28) for (let x = 14; x < width; x += 28) ctx.fillRect(x, y, 2.4, 2.4);
+
+  // Header
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = `700 76px ${font}`;
+  const doodleW = ctx.measureText('Doodle').width;
+  ctx.fillStyle = '#ffd23f';
+  roundRect(ctx, PAD - 8, 70, doodleW + 16, 30, 12);
+  ctx.fill();
+  ctx.fillStyle = INKC;
+  ctx.fillText('Doodle', PAD, 100);
+  ctx.fillStyle = '#ff5c39';
+  ctx.strokeStyle = INKC;
+  ctx.lineWidth = 5;
+  ctx.lineJoin = 'round';
+  ctx.strokeText('Dash', PAD + doodleW + 22, 100);
+  ctx.fillText('Dash', PAD + doodleW + 22, 100);
+  ctx.fillStyle = '#57526b';
+  ctx.font = `600 28px ${font}`;
+  const date = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  const artists = new Set(drawings.map((d) => d.drawerName)).size;
+  ctx.fillText(`The Gallery · ${drawings.length} drawing${drawings.length === 1 ? '' : 's'} by ${artists} artist${artists === 1 ? '' : 's'}${roomCode ? ` · room ${roomCode}` : ''} · ${date}`, PAD, 150);
+  if (winner) {
+    ctx.fillStyle = INKC;
+    ctx.font = `700 30px ${font}`;
+    ctx.fillText(`Winner: ${winner.name} · ${winner.score} pts`, PAD, 196);
+  }
+
+  // Cards
+  const art = document.createElement('canvas');
+  art.width = W;
+  art.height = H;
+  const actx = getCtx(art);
+  drawings.forEach((d, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = PAD + col * (CW + GAP);
+    const y = HEAD + row * (CH + GAP);
+    ctx.save();
+    ctx.translate(x + CW / 2, y + CH / 2);
+    ctx.rotate(((i % 2 ? 1 : -1) * (0.6 + (i % 3) * 0.3) * Math.PI) / 180);
+    ctx.translate(-CW / 2, -CH / 2);
+    ctx.fillStyle = 'rgba(29,26,43,0.9)';
+    roundRect(ctx, 0, 6, CW, CH, 8);
+    ctx.fill();
+    ctx.fillStyle = '#fffdf8';
+    ctx.strokeStyle = INKC;
+    ctx.lineWidth = 4;
+    roundRect(ctx, 0, 0, CW, CH, 8);
+    ctx.fill();
+    ctx.stroke();
+    renderOps(actx, d.ops);
+    ctx.drawImage(art, 20, 20, ART_W, ART_H);
+    ctx.lineWidth = 3;
+    ctx.strokeRect(20, 20, ART_W, ART_H);
+    ctx.fillStyle = 'rgba(255,210,63,0.8)';
+    ctx.save();
+    ctx.translate(CW / 2, 4);
+    ctx.rotate(((i % 2 ? -1 : 1) * 3 * Math.PI) / 180);
+    ctx.fillRect(-55, -14, 110, 28);
+    ctx.restore();
+    ctx.fillStyle = INKC;
+    ctx.font = `700 34px ${font}`;
+    const word = d.word.replace(/\b\w/g, (m) => m.toUpperCase());
+    ctx.fillText(fitText(ctx, word, ART_W - 90), 20, ART_H + 66);
+    ctx.beginPath();
+    ctx.arc(31, ART_H + 97, 10, 0, Math.PI * 2);
+    ctx.fillStyle = d.drawerColor || '#ff5c39';
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+    ctx.fillStyle = '#3f3a52';
+    ctx.font = `600 22px ${font}`;
+    ctx.fillText(fitText(ctx, `by ${d.drawerName}`, ART_W - 90), 50, ART_H + 105);
+    const n = likes[i] || 0;
+    if (n) {
+      ctx.save();
+      ctx.translate(CW - 108, ART_H + 58);
+      ctx.scale(0.8, 0.8);
+      ctx.fillStyle = '#e8384f';
+      ctx.fill(HEART);
+      ctx.lineWidth = 3.5;
+      ctx.strokeStyle = INKC;
+      ctx.stroke(HEART);
+      ctx.restore();
+      ctx.fillStyle = INKC;
+      ctx.font = `700 30px ${font}`;
+      ctx.fillText(String(n), CW - 62, ART_H + 88);
+    }
+    if (i === favourite) {
+      ctx.fillStyle = '#ffd23f';
+      ctx.strokeStyle = INKC;
+      ctx.lineWidth = 3;
+      roundRect(ctx, CW - 214, 30, 186, 40, 20);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = INKC;
+      ctx.font = `700 21px ${font}`;
+      ctx.fillText('Crowd favourite', CW - 198, 57);
+    }
+    ctx.restore();
+  });
+
+  ctx.fillStyle = '#57526b';
+  ctx.font = `600 28px ${font}`;
+  ctx.textAlign = 'center';
+  ctx.fillText(`Play free at ${host}`, width / 2, height - 44);
+  return c.toDataURL('image/png');
+}

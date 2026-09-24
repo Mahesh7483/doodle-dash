@@ -1,6 +1,6 @@
-import { Board, DrawInput, PALETTE, COLOR_NAMES, replay, exportPng } from './canvas.js';
+import { Board, DrawInput, PALETTE, COLOR_NAMES, replay, exportPng, exportPoster } from './canvas.js';
 import { sfx, isMuted, setMuted } from './sound.js';
-import { STICKERS, STICKER_IDS, REACT_ICON } from './stickers.js';
+import { STICKERS, STICKER_IDS, REACT_ICON, AWARD_ICONS } from './stickers.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -121,6 +121,9 @@ const S = {
   galleryCode: null,
   gameOverScreen: 'podium',
   viewingLastGallery: false,
+  awards: [],
+  likes: { counts: [], mine: [] },
+  lastLikes: null,
   phaseKey: '',
   phaseTotal: 1,
   lastSecond: null,
@@ -196,11 +199,18 @@ socket.on('draw', (op) => board.apply(op));
 socket.on('drawSync', ({ turnId, ops }) => {
   if (S.view && S.view.turn && S.view.turn.id === turnId) board.setOps(ops);
 });
-socket.on('gallery', ({ drawings }) => {
+socket.on('gallery', ({ drawings, awards, likes }) => {
   S.gallery = drawings;
   S.galleryCode = S.code;
+  S.awards = awards || [];
+  S.likes = likes || { counts: drawings.map(() => 0), mine: [] };
   if (!$('#screen-gallery').hidden) renderGallery();
   renderPodium();
+});
+socket.on('likes', (likes) => {
+  S.likes = likes;
+  updateLikes();
+  renderAwards();
 });
 socket.on('drawLimit', ({ message }) => toast(message));
 socket.on('reaction', ({ from, emoji, name, color }) => {
@@ -423,6 +433,7 @@ function onPhaseChange(prev, v) {
   }
   if (v.phase === 'lobby' && prev && prev.phase === 'gameOver' && S.gallery && S.gallery.length) {
     S.lastGallery = S.gallery;
+    S.lastLikes = S.likes;
   }
   if (v.phase === 'lobby') {
     S.gallery = null;
@@ -1036,6 +1047,7 @@ function renderPodium() {
     .map((p, i) => `<li><span class="rest-rank">${i + 4}</span>${avatar(p, 'avatar-sm')}<span class="rest-name">${esc(p.name)}</span><span class="rest-score">${p.score} pts</span></li>`)
     .join('');
   const n = S.gallery ? S.gallery.length : 0;
+  renderAwards();
   $('#to-gallery-btn').disabled = !S.gallery;
   $('#to-gallery-btn').lastChild.textContent = S.gallery ? ` Open the gallery (${n})` : ' Loading the gallery…';
   renderPlayAgain();
@@ -1106,6 +1118,7 @@ function renderGallery() {
     .map(
       (d, i) => `<figure class="frame" style="--tilt:${[-1.4, 1.1, -0.6, 1.5, -1.1, 0.7][i % 6]}deg" data-index="${i}">
         <div class="frame-tape" aria-hidden="true"></div>
+        <div class="fav-ribbon" hidden>${AWARD_ICONS.crowd}<span>Crowd favourite</span></div>
         <button type="button" class="frame-art" data-view="${i}" aria-label="View ${esc(d.word)} by ${esc(d.drawerName)}">
           <canvas width="800" height="600"></canvas>
         </button>
@@ -1115,7 +1128,8 @@ function renderGallery() {
           <div class="frame-meta">Round ${d.round} · ${d.guessedCount ? `${d.guessedCount} guessed it` : 'nobody guessed it'}</div>
         </figcaption>
         <div class="frame-actions">
-          <button type="button" class="btn btn-secondary btn-sm" data-replay="${i}"><svg class="icon icon-sm"><use href="#i-replay"/></svg> Replay</button>
+          <button type="button" class="like-btn" data-like="${i}" aria-pressed="false" aria-label="Like ${esc(d.word)}">${STICKERS.love.svg}<span class="like-n">0</span></button>
+          <button type="button" class="btn btn-secondary btn-sm" data-replay="${i}" aria-label="Replay"><svg class="icon icon-sm"><use href="#i-replay"/></svg><span class="hide-narrow">Replay</span></button>
           <button type="button" class="btn btn-primary btn-sm" data-save="${i}"><svg class="icon icon-sm"><use href="#i-download"/></svg> Save PNG</button>
         </div>
       </figure>`
@@ -1140,15 +1154,101 @@ function renderGallery() {
     { threshold: 0.35 }
   );
   canvases.forEach((c) => galleryObserver.observe(c));
-  grid.onclick = (e) => {
+  grid.onclick = async (e) => {
     const r = e.target.closest('[data-replay]');
     const s = e.target.closest('[data-save]');
     const view = e.target.closest('[data-view]');
-    if (r) play(Number(r.dataset.replay));
+    const like = e.target.closest('[data-like]');
+    if (like) {
+      if (like.disabled) return;
+      const i = Number(like.dataset.like);
+      const on = like.getAttribute('aria-pressed') !== 'true';
+      // Optimistic: flip it now, the server's count follows.
+      const mine = new Set(S.likes.mine);
+      if (on) mine.add(i);
+      else mine.delete(i);
+      S.likes = { counts: S.likes.counts.map((n, k) => (k === i ? n + (on ? 1 : -1) : n)), mine: [...mine] };
+      updateLikes();
+      if (on) {
+        sfx.pop();
+        vibrate(12);
+      }
+      const res = await emit('like', i, on);
+      if (res.error) toast(res.error);
+    } else if (r) play(Number(r.dataset.replay));
     else if (s) savePng(drawings[Number(s.dataset.save)]);
     else if (view) openViewer(Number(view.dataset.view));
   };
+  updateLikes();
   renderPlayAgain();
+}
+
+function galleryLikes() {
+  return (S.view && S.view.phase === 'gameOver' ? S.likes : S.lastLikes) || { counts: [], mine: [] };
+}
+
+function favouriteIndex(counts) {
+  let best = -1;
+  counts.forEach((n, i) => {
+    if (n > 0 && (best === -1 || n > counts[best])) best = i;
+  });
+  return best;
+}
+
+// Update hearts and the Crowd favourite ribbon in place (without restarting replays).
+function updateLikes() {
+  const drawings = galleryData();
+  const { counts, mine } = galleryLikes();
+  const live = !!(S.view && S.view.phase === 'gameOver');
+  const fav = favouriteIndex(counts);
+  $$('#gallery-grid .frame').forEach((frame) => {
+    const i = Number(frame.dataset.index);
+    const btn = frame.querySelector('.like-btn');
+    const own = S.view && drawings[i] && drawings[i].drawerId === S.view.me;
+    btn.querySelector('.like-n').textContent = String(counts[i] || 0);
+    btn.setAttribute('aria-pressed', String(mine.includes(i)));
+    btn.disabled = !live || !!own;
+    btn.title = own ? 'Your drawing' : live ? 'Like' : '';
+    frame.querySelector('.fav-ribbon').hidden = i !== fav;
+    frame.classList.toggle('is-fav', i === fav);
+  });
+  $('#like-hint').hidden = !live || !drawings.length;
+}
+
+function renderAwards() {
+  const v = S.view;
+  const awards = (v && v.awards) || S.awards || [];
+  const wrap = $('#awards-wrap');
+  if (!v || v.phase !== 'gameOver') {
+    wrap.hidden = true;
+    return;
+  }
+  const drawings = S.gallery || [];
+  const { counts } = S.likes;
+  const fav = favouriteIndex(counts || []);
+  const cards = awards.map(
+    (a, k) => `<div class="award" style="--delay:${0.9 + k * 0.12}s">
+      <span class="award-icon">${AWARD_ICONS[a.id] || ''}</span>
+      <div class="award-body"><div class="award-title">${esc(a.title)}</div>
+        <div class="award-who">${avatar({ name: a.name, color: a.color, bot: a.bot }, 'avatar-xs')} ${esc(a.name)}</div>
+        <div class="award-detail">${esc(a.detail)}</div></div>
+    </div>`
+  );
+  if (drawings.length) {
+    const d = drawings[fav];
+    cards.push(`<div class="award award-crowd" style="--delay:${0.9 + awards.length * 0.12}s">
+      <span class="award-icon">${AWARD_ICONS.crowd}</span>
+      <div class="award-body"><div class="award-title">Crowd favourite</div>
+        ${
+          d
+            ? `<div class="award-who">${avatar({ name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} ${esc(d.drawerName)}</div>
+               <div class="award-detail">“${esc(d.word)}” · ${counts[fav]} like${counts[fav] === 1 ? '' : 's'}</div>`
+            : '<div class="award-detail">Nobody has voted yet. Open the gallery and tap ♥ on your favourites!</div>'
+        }</div>
+    </div>`);
+  }
+  wrap.hidden = !cards.length;
+  $('#awards').innerHTML = cards.join('');
 }
 
 function replayDuration(d) {
@@ -1169,13 +1269,34 @@ function dataUrlToFile(dataUrl, name) {
 
 async function savePng(d) {
   const url = exportPng(d, { roomCode: S.galleryCode || S.code });
-  const name = `doodle-dash-${slug(d.word)}.png`;
+  await saveImage(url, `doodle-dash-${slug(d.word)}.png`, `${d.word} — Doodle Dash`);
+}
+
+async function savePoster() {
+  const drawings = galleryData();
+  if (!drawings.length) return;
+  const { counts } = galleryLikes();
+  const players = S.view ? [...S.view.players].sort((a, b) => b.score - a.score) : [];
+  const btn = $('#poster-btn');
+  btn.disabled = true;
+  await new Promise((r) => setTimeout(r, 30)); // let the button update before the heavy render
+  const url = exportPoster(drawings, {
+    roomCode: S.galleryCode || S.code,
+    likes: counts,
+    favourite: favouriteIndex(counts),
+    winner: S.view && S.view.phase === 'gameOver' && players[0] ? players[0] : null,
+  });
+  btn.disabled = false;
+  await saveImage(url, `doodle-dash-${S.galleryCode || 'game'}-gallery.png`, 'Our Doodle Dash gallery');
+}
+
+async function saveImage(url, name, title) {
   // On phones, the share sheet is the natural way to put an image in Photos.
   if (matchMedia('(pointer: coarse)').matches && navigator.canShare) {
     try {
       const file = dataUrlToFile(url, name);
       if (navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: `${d.word} — Doodle Dash` });
+        await navigator.share({ files: [file], title });
         return;
       }
     } catch (err) {
@@ -1194,7 +1315,11 @@ async function savePng(d) {
 // Full-screen viewer
 let viewerIndex = 0;
 let viewerStop = null;
-function openViewer(i) {
+let slideshow = false;
+let slideTimer = null;
+function openViewer(i, auto = slideshow) {
+  slideshow = auto;
+  clearTimeout(slideTimer);
   const drawings = galleryData();
   if (!drawings.length) return;
   viewerIndex = (i + drawings.length) % drawings.length;
@@ -1203,10 +1328,18 @@ function openViewer(i) {
   document.body.classList.add('viewer-open');
   $('#viewer-word').textContent = d.word;
   $('#viewer-by').innerHTML = `${avatar({ name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} drawn by ${esc(d.drawerName)} · ${viewerIndex + 1} / ${drawings.length}`;
+  $('#viewer').classList.toggle('is-slideshow', slideshow);
   if (viewerStop) viewerStop();
-  viewerStop = replay($('#viewer-canvas'), d.ops, { duration: replayDuration(d) });
+  viewerStop = replay($('#viewer-canvas'), d.ops, {
+    duration: replayDuration(d),
+    onDone: () => {
+      if (slideshow && viewerIndex < drawings.length - 1) slideTimer = setTimeout(() => openViewer(viewerIndex + 1, true), 1800);
+    },
+  });
 }
 function closeViewer() {
+  slideshow = false;
+  clearTimeout(slideTimer);
   if (viewerStop) viewerStop();
   $('#viewer').hidden = true;
   document.body.classList.remove('viewer-open');
@@ -1219,6 +1352,8 @@ $('#viewer-prev').addEventListener('click', () => openViewer(viewerIndex - 1));
 $('#viewer-next').addEventListener('click', () => openViewer(viewerIndex + 1));
 $('#viewer-replay').addEventListener('click', () => openViewer(viewerIndex));
 $('#viewer-save').addEventListener('click', () => savePng(galleryData()[viewerIndex]));
+$('#slideshow-btn').addEventListener('click', () => openViewer(0, true));
+$('#poster-btn').addEventListener('click', savePoster);
 document.addEventListener('keydown', (e) => {
   if ($('#viewer').hidden) return;
   if (e.key === 'Escape') closeViewer();

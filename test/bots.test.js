@@ -127,6 +127,13 @@ test('solo game: one person + a bot plays to the end; the bot draws and guesses'
     assert.equal(d.ops.length, original.length, `${d.word}: whole doodle drawn`);
   }
   assert.ok(room.get(me).score > 0);
+  // After the game the bot likes one of my drawings.
+  env.run(12000);
+  const likes = sent.filter((m) => m.pid === me && m.event === 'likes').at(-1);
+  assert.ok(likes && likes.data.counts.some((n) => n > 0), 'bot liked a drawing');
+  gallery.forEach((d, i) => {
+    if (d.drawerId === botId) assert.equal(likes.data.counts[i], 0, 'bots never like their own drawings');
+  });
 });
 
 test('bots talk in chat but never leak the word or spam', () => {

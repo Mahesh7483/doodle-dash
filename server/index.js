@@ -247,6 +247,12 @@ function createServer(options = {}) {
       reply(ack, cur.room.react(cur.pid, String(emoji)));
     });
 
+    socket.on('like', (index, on, ack) => {
+      const cur = current();
+      if (!cur) return reply(ack, { error: 'Not in a room.' });
+      reply(ack, cur.room.like(cur.pid, index, on !== false));
+    });
+
     socket.on('playAgain', (ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
