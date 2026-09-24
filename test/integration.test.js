@@ -291,8 +291,22 @@ test('9th player gets "Room is full"; bad codes are rejected', { timeout: 30000 
   }
   const ninth = await connect(url);
   sockets.push(ninth);
-  assert.equal((await ask(ninth, 'room:join', { name: 'Nine', token: 'full-test-token-9', code: created.code })).error, 'Room is full');
+  const refused = await ask(ninth, 'room:join', { name: 'Nine', token: 'full-test-token-9', code: created.code });
+  assert.equal(refused.error, 'Room is full');
+  assert.equal(refused.full, true);
   assert.match((await ask(ninth, 'room:join', { name: 'Nine', token: 'full-test-token-9', code: 'QQQQ' })).error, /not found/);
+
+  // The 9th person joins the audience instead: they see the room and can react, but not chat.
+  const audienceState = new Promise((resolve) => ninth.on('state', (st) => st.audience && resolve(st)));
+  const inAudience = await ask(ninth, 'room:audience', { name: 'Nine', token: 'full-test-token-9', code: created.code });
+  assert.ok(inAudience.ok && inAudience.audience, JSON.stringify(inAudience));
+  const st = await audienceState;
+  assert.equal(st.audience.name, 'Nine');
+  assert.equal(st.players.length, 8);
+  const hostSees = new Promise((resolve) => host.on('reaction', resolve));
+  assert.ok((await ask(ninth, 'react', 'star')).ok);
+  assert.equal((await hostSees).name, 'Nine');
+  assert.equal((await ask(ninth, 'chat', 'hi')).error, 'Not in room.');
 
   // The host removes P1, who is told and can't come back in.
   const joinedP1 = await ask(sockets[1], 'room:join', { name: 'P1', token: 'full-test-token-1', code: created.code });
@@ -301,7 +315,8 @@ test('9th player gets "Room is full"; bad codes are rejected', { timeout: 30000 
   assert.deepEqual(await kickedEvent, { code: created.code });
   assert.equal((await ask(sockets[1], 'chat', 'still here?')).error, 'Not in a room.');
   assert.equal((await ask(sockets[1], 'room:join', { name: 'P1', token: 'full-test-token-1', code: created.code })).error, 'The host removed you from this room.');
-  assert.ok((await ask(ninth, 'room:join', { name: 'Nine', token: 'full-test-token-9', code: created.code })).ok, 'the free seat can be taken');
+  const seated = await ask(ninth, 'room:join', { name: 'Nine', token: 'full-test-token-9', code: created.code });
+  assert.ok(seated.ok && !seated.resumed, 'someone in the audience takes the free seat');
   assert.equal((await ask(sockets[2], 'kick', created.playerId)).error, 'Only the host can remove players.');
   for (const s of sockets) s.close();
 });

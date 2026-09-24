@@ -54,6 +54,10 @@ const AVATAR_KEEP = 40; // avatars remembered per room (so gallery credits keep 
 // TV / big-screen watchers: they see what a guesser sees (never the word early) but hold no seat.
 const MAX_WATCHERS = 6;
 
+// Audience: people beyond the 8 seats (or who'd rather watch). Same view as a guesser who never
+// guesses; they can react and like gallery drawings, but can't chat or draw.
+const MAX_AUDIENCE = 50;
+
 const DEFAULT_TIMING = {
   chooseMs: 15000,
   revealMs: 5000,
@@ -211,6 +215,7 @@ class Room {
     this.emptySince = this.now();
     this.msgSeq = 0;
     this.watchers = new Set(); // ids of connected TV screens
+    this.audience = new Map(); // id -> audience member
     this.publicLog = []; // public chat lines, replayed to a TV when it connects
     this.banned = new Set(); // tokens of players the host removed
     this.avatars = new Map(); // player id -> { av, data }, kept after they leave
@@ -350,7 +355,8 @@ class Room {
   }
 
   leave(pid) {
-    this.removePlayer(pid, 'left');
+    if (this.audience.has(pid)) this.leaveAudience(pid);
+    else this.removePlayer(pid, 'left');
   }
 
   removePlayer(pid, why = 'left') {
@@ -403,6 +409,13 @@ class Room {
   // this room with the same browser.
   kick(pid, targetId) {
     if (pid !== this.hostId) return { error: 'Only the host can remove players.' };
+    const fan = this.audience.get(targetId);
+    if (fan) {
+      this.banned.add(fan.token);
+      if (fan.connected) this.send(targetId, 'kicked', { code: this.code });
+      this.leaveAudience(targetId);
+      return { ok: true };
+    }
     const target = this.get(targetId);
     if (!target) return { error: 'That player already left.' };
     if (targetId === pid) return { error: "You can't remove yourself. Use Leave instead." };
@@ -439,8 +452,69 @@ class Room {
     this.broadcastState();
   }
 
+  // TV screens and the audience: everything public.
   toWatchers(event, payload) {
     for (const id of this.watchers) this.send(id, event, payload);
+    for (const a of this.audience.values()) if (a.connected) this.send(a.id, event, payload);
+  }
+
+  // ---- audience
+
+  audienceByToken(token) {
+    for (const a of this.audience.values()) if (a.token === token) return a;
+    return null;
+  }
+
+  crowd() {
+    let n = 0;
+    for (const a of this.audience.values()) if (a.connected) n++;
+    return n;
+  }
+
+  addAudience(token, rawName) {
+    const name = sanitizeName(rawName);
+    if (!name) return { error: 'Please enter a name (1–16 characters).' };
+    if (!validToken(token)) return { error: 'Bad session token. Please reload the page.' };
+    const existing = this.audienceByToken(token);
+    if (existing) return { member: existing };
+    if (this.audience.size >= MAX_AUDIENCE) return { error: 'The audience is full too, sorry!' };
+    const member = {
+      id: `au-${newId()}`,
+      token,
+      name,
+      color: AVATAR_COLORS[Math.floor(this.rng() * AVATAR_COLORS.length)],
+      connected: false,
+      disconnectedAt: null,
+      audience: true,
+    };
+    this.audience.set(member.id, member);
+    return { member };
+  }
+
+  connectAudience(id) {
+    const a = this.audience.get(id);
+    if (!a) return;
+    a.connected = true;
+    a.disconnectedAt = null;
+    this.send(id, 'avatars', this.avatarsPayload());
+    this.send(id, 'chatHistory', { messages: this.publicLog });
+    this.broadcastState(); // everyone sees the audience count
+    this.sendSync(id);
+  }
+
+  disconnectAudience(id) {
+    const a = this.audience.get(id);
+    if (!a || !a.connected) return;
+    a.connected = false;
+    a.disconnectedAt = this.now();
+    this.broadcastState();
+  }
+
+  leaveAudience(id) {
+    const a = this.audience.get(id);
+    if (!a) return;
+    this.audience.delete(id);
+    if (a.connected) this.broadcastState();
   }
 
   // A chat line everyone may see: goes to the TV screens and their replay log.
@@ -904,7 +978,8 @@ class Room {
     this.system('Game over!', 'round');
     this.broadcastState();
     for (const p of this.connected()) if (!p.bot) this.send(p.id, 'gallery', this.galleryPayload(p.id));
-    this.toWatchers('gallery', this.galleryPayload(null));
+    for (const id of this.watchers) this.send(id, 'gallery', this.galleryPayload(null));
+    for (const a of this.audience.values()) if (a.connected) this.send(a.id, 'gallery', this.galleryPayload(a.id));
   }
 
   galleryPayload(pid) {
@@ -952,7 +1027,7 @@ class Room {
   }
 
   like(pid, index, on = true) {
-    const p = this.get(pid);
+    const p = this.get(pid) || this.audience.get(pid);
     if (!p) return { error: 'Not in room.' };
     if (this.phase !== 'gameOver') return { error: 'You can like drawings after the game.' };
     const i = Number(index);
@@ -962,7 +1037,8 @@ class Room {
     if (on) this.likes[i].add(pid);
     else this.likes[i].delete(pid);
     for (const q of this.players) if (q.connected && !q.bot) this.send(q.id, 'likes', this.likesFor(q.id));
-    this.toWatchers('likes', this.likesFor(null));
+    for (const id of this.watchers) this.send(id, 'likes', this.likesFor(null));
+    for (const a of this.audience.values()) if (a.connected) this.send(a.id, 'likes', this.likesFor(a.id));
     return { ok: true, count: this.likes[i].size };
   }
 
@@ -984,7 +1060,7 @@ class Room {
   }
 
   react(pid, emoji) {
-    const p = this.get(pid);
+    const p = this.get(pid) || this.audience.get(pid);
     if (!p) return { error: 'Not in room.' };
     if (!REACTIONS.includes(emoji)) return { error: 'Unknown reaction.' };
     if (!p.bot && this.rateLimited(p, 'reactTimes', REACTIONS_PER_2S, 2000)) return { error: 'Slow down!' };
@@ -1181,7 +1257,8 @@ class Room {
 
   sendSync(pid) {
     const p = this.get(pid);
-    if (!this.watchers.has(pid) && (!p || !p.connected)) return;
+    const fan = this.audience.get(pid);
+    if (!this.watchers.has(pid) && !(fan && fan.connected) && (!p || !p.connected)) return;
     if (this.turn && (this.phase === 'drawing' || this.phase === 'reveal')) {
       this.send(pid, 'drawSync', { turnId: this.turn.id, ops: this.turn.ops.map(wireOp) });
     }
@@ -1225,9 +1302,12 @@ class Room {
       serverNow: this.now(),
       notice: this.notice,
       screens: this.watchers.size,
+      crowd: this.crowd(),
       turn: null,
     };
     if (this.watchers.has(pid)) view.watching = true;
+    const fan = this.audience.get(pid);
+    if (fan) view.audience = { name: fan.name, color: fan.color };
     if (this.phase === 'gameOver') view.awards = this.awards || [];
     // Only the host gets the custom word list back, and only while in the lobby.
     if (pid === this.hostId && this.phase === 'lobby') view.customWords = this.customWords.join(', ');
@@ -1266,6 +1346,7 @@ class Room {
       if (p.connected && !p.bot) this.send(p.id, 'state', this.viewFor(p.id));
     }
     for (const id of this.watchers) this.send(id, 'state', this.viewFor(id));
+    for (const a of this.audience.values()) if (a.connected) this.send(a.id, 'state', this.viewFor(a.id));
   }
 
   // ---- clock
@@ -1278,6 +1359,9 @@ class Room {
       if (!p.connected && p.disconnectedAt != null && now - p.disconnectedAt >= T.seatHoldMs) {
         this.removePlayer(p.id, 'timeout');
       }
+    }
+    for (const a of [...this.audience.values()]) {
+      if (!a.connected && a.disconnectedAt != null && now - a.disconnectedAt >= T.seatHoldMs) this.audience.delete(a.id);
     }
 
     const host = this.get(this.hostId);
@@ -1455,9 +1539,27 @@ class RoomManager {
     if (room.banned.has(token)) return { error: 'The host removed you from this room.' };
     const existing = validToken(token) ? room.byToken(token) : null;
     if (existing) return { room, player: existing, resumed: true };
+    if (room.isFull()) return { error: 'Room is full', full: true, code };
+    // Someone from the audience taking a free seat.
+    const fan = validToken(token) ? room.audienceByToken(token) : null;
     const res = room.addPlayer(token, name);
     if (res.error) return res;
+    if (fan) room.leaveAudience(fan.id);
     return { room, player: res.player, resumed: false };
+  }
+
+  // Join the audience (e.g. when the room is full). A seat you already hold wins.
+  joinAudience(code, token, name) {
+    code = normalizeCode(code);
+    if (!validCode(code)) return { error: 'Room codes are 4 letters.' };
+    const room = this.rooms.get(code);
+    if (!room) return { error: `Room ${code} not found. Check the code?` };
+    if (room.banned.has(token)) return { error: 'The host removed you from this room.' };
+    const seat = validToken(token) ? room.byToken(token) : null;
+    if (seat) return { room, player: seat };
+    const res = room.addAudience(token, name);
+    if (res.error) return res;
+    return { room, member: res.member };
   }
 
   resume(code, token) {
@@ -1465,8 +1567,10 @@ class RoomManager {
     if (!room) return { error: 'That room has closed.' };
     if (room.banned.has(token)) return { error: 'The host removed you from this room.' };
     const player = validToken(token) ? room.byToken(token) : null;
-    if (!player) return { error: 'Your seat expired. Join again?' };
-    return { room, player };
+    if (player) return { room, player };
+    const member = validToken(token) ? room.audienceByToken(token) : null;
+    if (member) return { room, member };
+    return { error: 'Your seat expired. Join again?' };
   }
 
   // A TV screen showing the room. Returns the watcher id to route messages to.
@@ -1521,6 +1625,7 @@ module.exports = {
   MAX_POINTS_PER_TURN,
   REACTIONS,
   MAX_WATCHERS,
+  MAX_AUDIENCE,
   AVATAR_SIZES,
   sanitizeAvatar,
   CHAOS,

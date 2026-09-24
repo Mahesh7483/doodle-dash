@@ -384,6 +384,33 @@ body.tv {
 .tvg-scores {
   min-height: 0;
   overflow: hidden;
+  padding-bottom: 3.4rem; /* the sound button sits below */
+}
+
+/* A full room: slimmer rows so all 8 (and the audience line) fit. */
+.tvg-players.many {
+  gap: 0.4rem;
+}
+
+.tvg-players.many .tvg-pl {
+  padding: 0.3rem 0.7rem;
+}
+
+.tvg-players.many .avatar {
+  --size: 2.1rem;
+}
+
+.tvg-players.many .tvg-pl-name {
+  font-size: 1.05rem;
+}
+
+.tvg-players.many .tvg-pl-score {
+  font-size: 0.9rem;
+}
+
+.tvg-players.many .tvg-crowd {
+  padding: 0.35rem 0.8rem;
+  font-size: 1rem;
 }
 
 .tvg-players {
@@ -1343,4 +1370,27 @@ body.tv {
 .tvo-chaos svg {
   width: 1.7rem;
   height: 1.7rem;
+}
+
+/* ------------------------------------------------------------------ audience */
+
+.tv-pill-crowd {
+  background: var(--purple-soft);
+}
+
+.tv-pill-crowd .icon {
+  width: 1.2rem;
+  height: 1.2rem;
+}
+
+.tvg-crowd {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.9rem;
+  border: 2.5px dashed color-mix(in srgb, var(--line) 50%, transparent);
+  border-radius: 1rem;
+  font-weight: 650;
+  font-size: 1.1rem;
+  color: var(--text-2);
 }

@@ -46,6 +46,9 @@ function playAndCheck(seed) {
   // A TV screen watches every game: it must never learn the word before the reveal either.
   const tv = env.manager.watch(room.code);
   room.connectWatcher(tv.id);
+  // And someone in the audience.
+  const fan = env.manager.joinAudience(room.code, `token-fan-${seed}`, 'Fan').member;
+  room.connectAudience(fan.id);
   room.start(ids[0]);
   let checked = 0;
   let checkedTv = 0;
@@ -68,7 +71,7 @@ function playAndCheck(seed) {
           if (it.event === 'chat' && it.data.from === m.pid) continue; // their own message echoed back
           assert.ok(!wordIn(it.data, w), `seed ${seed}: "${w}" leaked to ${m.pid} in ${m.event}: ${JSON.stringify(it.data)}`);
           checked++;
-          if (m.pid === tv.id) checkedTv++;
+          if (m.pid === tv.id || m.pid === fan.id) checkedTv++;
         }
       }
     }

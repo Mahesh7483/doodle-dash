@@ -13,7 +13,8 @@
     "dev": "node --watch server/index.js",
     "test": "node --test --test-concurrency=1 test/*.test.js",
     "test:e2e": "playwright test",
-    "test:all": "npm test && npm run test:e2e"
+    "test:all": "npm test && npm run test:e2e",
+    "loadtest": "node scripts/loadtest.js"
   },
   "dependencies": {
     "express": "^5.2.1",

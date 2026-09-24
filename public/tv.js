@@ -244,7 +244,8 @@ function renderLobby() {
   const s = v.settings;
   $('#tvl-settings').innerHTML =
     [`${s.rounds} rounds`, `${s.drawTime} s to draw`, `${PACK_NAMES[s.pack] || 'Mixed'} words`].map((t) => `<span class="tv-pill">${esc(t)}</span>`).join('') +
-    (s.chaos ? `<span class="tv-pill tv-pill-chaos">${CHAOS.mirror.svg}Chaos rounds</span>` : '');
+    (s.chaos ? `<span class="tv-pill tv-pill-chaos">${CHAOS.mirror.svg}Chaos rounds</span>` : '') +
+    (v.crowd ? `<span class="tv-pill tv-pill-crowd"><svg class="icon"><use href="#i-eye"/></svg>${v.crowd} in the audience</span>` : '');
   const host = player(v.hostId);
   const ready = v.players.filter((p) => p.connected).length;
   let wait;
@@ -299,6 +300,7 @@ function renderPlayers() {
   const sorted = [...v.players].sort((a, b) => b.score - a.score);
   const ranks = new Map();
   sorted.forEach((p, i) => ranks.set(p.id, i > 0 && sorted[i - 1].score === p.score ? ranks.get(sorted[i - 1].id) : i + 1));
+  $('#tvg-players').classList.toggle('many', sorted.length + (v.crowd ? 1 : 0) > 6);
   $('#tvg-players').innerHTML = sorted
     .map((p) => {
       const drawing = t && t.drawerId === p.id && v.phase !== 'reveal';
@@ -310,7 +312,7 @@ function renderPlayers() {
       return `<li class="${cls}" data-pid="${esc(p.id)}"><span class="tvg-rank">#${ranks.get(p.id)}</span>${avatar(p)}
         <span class="tvg-pl-main"><span class="tvg-pl-name">${esc(p.name)}</span><span class="tvg-pl-score">${p.score} pts${gain}</span></span>${status}</li>`;
     })
-    .join('');
+    .join('') + (v.crowd ? `<li class="tvg-crowd"><svg class="icon"><use href="#i-eye"/></svg>${v.crowd} in the audience</li>` : '');
 }
 
 function renderOverlay() {

@@ -142,7 +142,7 @@ function createServer(options = {}) {
     const current = () => {
       const room = socket.data.code ? manager.getRoom(socket.data.code) : null;
       const pid = socket.data.pid;
-      if (!room || !pid || !room.get(pid) || sockets.get(pid) !== socket) return null;
+      if (!room || !pid || (!room.get(pid) && !room.audience.has(pid)) || sockets.get(pid) !== socket) return null;
       return { room, pid };
     };
 
@@ -166,21 +166,26 @@ function createServer(options = {}) {
       if (room) room.removeWatcher(w.id);
     };
 
-    const bind = (room, player) => {
+    // Bind this socket to a seat (a player, or someone in the audience).
+    const bind = (room, seat) => {
       unwatch();
       const cur = current();
-      if (cur && cur.pid !== player.id) detach();
-      const prev = sockets.get(player.id);
+      if (cur && cur.pid !== seat.id) detach();
+      // An audience member who just took a seat: forget the old id.
+      const old = socket.data.pid;
+      if (old && old !== seat.id && sockets.get(old) === socket) sockets.delete(old);
+      const prev = sockets.get(seat.id);
       if (prev && prev !== socket) {
         prev.data.pid = null;
         prev.data.code = null;
         prev.emit('replaced');
         prev.disconnect(true);
       }
-      sockets.set(player.id, socket);
-      socket.data.pid = player.id;
+      sockets.set(seat.id, socket);
+      socket.data.pid = seat.id;
       socket.data.code = room.code;
-      room.connect(player.id);
+      if (seat.audience) room.connectAudience(seat.id);
+      else room.connect(seat.id);
     };
 
     socket.on('time', (ack) => reply(ack, Date.now()));
@@ -205,17 +210,31 @@ function createServer(options = {}) {
       joinTimes.push(now);
       const { name, token, code } = data || {};
       const res = manager.join(code, token, name);
-      if (res.error) return reply(ack, { error: res.error });
+      if (res.error) return reply(ack, { error: res.error, full: !!res.full });
       reply(ack, { ok: true, code: res.room.code, playerId: res.player.id, resumed: res.resumed });
       bind(res.room, res.player);
+    });
+
+    socket.on('room:audience', (data, ack) => {
+      const now = Date.now();
+      joinTimes = joinTimes.filter((t) => now - t < 60000);
+      if (joinTimes.length >= 20) return reply(ack, { error: 'Too many tries — wait a minute and check the code.' });
+      joinTimes.push(now);
+      const { name, token, code } = data || {};
+      const res = manager.joinAudience(code, token, name);
+      if (res.error) return reply(ack, { error: res.error });
+      const seat = res.player || res.member;
+      reply(ack, { ok: true, code: res.room.code, playerId: seat.id, audience: !!res.member });
+      bind(res.room, seat);
     });
 
     socket.on('room:resume', (data, ack) => {
       const { token, code } = data || {};
       const res = manager.resume(code, token);
       if (res.error) return reply(ack, { error: res.error });
-      reply(ack, { ok: true, code: res.room.code, playerId: res.player.id });
-      bind(res.room, res.player);
+      const seat = res.player || res.member;
+      reply(ack, { ok: true, code: res.room.code, playerId: seat.id, audience: !!res.member });
+      bind(res.room, seat);
     });
 
     socket.on('room:leave', (ack) => {
@@ -323,7 +342,8 @@ function createServer(options = {}) {
       const cur = current();
       if (!cur) return;
       sockets.delete(cur.pid);
-      cur.room.disconnect(cur.pid);
+      if (cur.room.audience.has(cur.pid)) cur.room.disconnectAudience(cur.pid);
+      else cur.room.disconnect(cur.pid);
     });
   });
 

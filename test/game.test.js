@@ -963,3 +963,78 @@ test('chaos: bots follow every twist, and the gallery remembers it', () => {
     }
   }
 });
+
+test('audience: joins a full room, sees what a guesser sees, reacts and likes, cannot chat or draw', () => {
+  const env = setup({ players: 8 });
+  const { room, ids, sent, manager } = env;
+  const full = manager.join(room.code, 'token-ninth-person', 'Nine');
+  assert.equal(full.error, 'Room is full');
+  assert.equal(full.full, true);
+  const res = manager.joinAudience(room.code.toLowerCase(), 'token-ninth-person', 'Nine');
+  assert.ok(res.member);
+  const fan = res.member.id;
+  sent.length = 0;
+  room.connectAudience(fan);
+  const view = env.lastState(fan);
+  assert.deepEqual(view.audience, { name: 'Nine', color: res.member.color });
+  assert.equal(view.players.length, 8, 'not a player');
+  assert.equal(env.lastState(ids[0]).crowd, 1, 'players see the audience count');
+  assert.ok(sent.some((m) => m.pid === fan && m.event === 'chatHistory'));
+
+  room.updateSettings(ids[0], { rounds: 2 });
+  const w = startAndChoose(env, 'hard');
+  const st = env.lastState(fan);
+  assert.equal(st.turn.word, null);
+  assert.equal(st.turn.mask.length, Array.from(w).length);
+  assert.equal(room.chat(fan, w).error, 'Not in room.', 'no guessing or chatting');
+  assert.equal(room.draw(fan, { t: 'b', id: 1, c: 0, s: 10, p: [1, 1] }), false);
+  assert.equal(room.start(fan).error, 'Only the host can start the game.');
+  sent.length = 0;
+  assert.ok(room.react(fan, 'love').ok);
+  assert.equal(sent.find((m) => m.pid === ids[0] && m.event === 'reaction').data.name, 'Nine');
+  const drawer = room.turn.drawerId;
+  room.draw(drawer, { t: 'b', id: 1, c: 0, s: 10, p: [10, 10, 20, 20] });
+  assert.ok(sent.some((m) => m.pid === fan && m.event === 'draw'), 'sees the drawing live');
+
+  // Refresh: the same browser token gets the same audience spot back.
+  room.disconnectAudience(fan);
+  assert.equal(env.lastState(ids[0]).crowd, 0);
+  const back = manager.resume(room.code, 'token-ninth-person');
+  assert.equal(back.member.id, fan);
+  room.connectAudience(fan);
+  assert.equal(env.lastState(ids[0]).crowd, 1);
+
+  // After the game the audience votes for the Crowd favourite.
+  while (room.phase !== 'gameOver') env.run(90000, 1000);
+  assert.ok(room.gallery.length >= 1);
+  assert.equal(room.like(fan, 0).count, 1);
+  assert.deepEqual(sent.filter((m) => m.pid === fan && m.event === 'likes').at(-1).data.mine, [0]);
+
+  // Gone for longer than the seat hold: their spot is dropped.
+  room.disconnectAudience(fan);
+  env.run(61000, 1000);
+  assert.equal(room.audience.size, 0);
+});
+
+test('audience: takes a free seat in the lobby; the host can remove them; capped at 50', () => {
+  const env = setup({ players: 2 });
+  const { room, ids, manager } = env;
+  const res = manager.joinAudience(room.code, 'token-watcher-1', 'Watcher');
+  room.connectAudience(res.member.id);
+  // A seat is free, so joining as a player takes it and leaves the audience.
+  const seat = manager.join(room.code, 'token-watcher-1', 'Watcher');
+  assert.ok(seat.player);
+  assert.equal(room.audience.size, 0);
+  assert.equal(room.players.length, 3);
+  // Someone who already has a seat stays a player.
+  assert.ok(manager.joinAudience(room.code, 'token-watcher-1', 'Watcher').player);
+
+  const fan = manager.joinAudience(room.code, 'token-watcher-2', 'Heckler').member;
+  room.connectAudience(fan.id);
+  assert.ok(room.kick(ids[0], fan.id).ok);
+  assert.equal(room.audience.size, 0);
+  assert.equal(manager.joinAudience(room.code, 'token-watcher-2', 'Heckler').error, 'The host removed you from this room.');
+
+  for (let i = 0; i < 50; i++) assert.ok(manager.joinAudience(room.code, `token-crowd-${i}`, `Fan ${i}`).member);
+  assert.match(manager.joinAudience(room.code, 'token-crowd-51', 'Late').error, /audience is full/);
+});

@@ -304,11 +304,13 @@ function showHome(inviteCode) {
   }
   $('#name-input').value = ls.get('dd.name') || $('#name-input').value || '';
   setHomeError(null);
+  $('#audience-offer').hidden = true;
   showScreen('home');
   if (!$('#name-input').value && !matchMedia('(pointer: coarse)').matches) $('#name-input').focus();
 }
 
 function setHomeError(msg) {
+  if (msg) $('#audience-offer').hidden = true;
   const el = $('#home-error');
   el.hidden = !msg;
   el.textContent = msg || '';
@@ -351,7 +353,33 @@ async function joinRoom(code) {
   await tokenReady;
   const res = await emit('room:join', { name, token: S.token, code });
   S.busy = false;
+  if (res.full && !S.view) return offerAudience(code);
+  if (res.error) {
+    if (S.view) return toast(res.error);
+    return setHomeError(res.error);
+  }
+  enterRoom(res.code);
+}
+
+// The room is full: offer a spot in the audience.
+function offerAudience(code) {
+  setHomeError(null);
+  $('#audience-code').textContent = code;
+  $('#audience-offer').hidden = false;
+  $('#audience-offer').dataset.code = code;
+  $('#audience-offer').scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+async function joinAudience() {
+  if (S.busy) return;
+  const name = readName();
+  if (!name) return;
+  S.busy = true;
+  await tokenReady;
+  const res = await emit('room:audience', { name, token: S.token, code: $('#audience-offer').dataset.code });
+  S.busy = false;
   if (res.error) return setHomeError(res.error);
+  $('#audience-offer').hidden = true;
   enterRoom(res.code);
 }
 
@@ -368,7 +396,7 @@ function enterRoom(code) {
 }
 
 async function leaveRoom() {
-  if (S.view && S.view.phase !== 'lobby' && S.view.phase !== 'gameOver') {
+  if (S.view && !S.view.audience && S.view.phase !== 'lobby' && S.view.phase !== 'gameOver') {
     if (!confirm('Leave the game? Your score will be lost.')) return;
   }
   await emit('room:leave');
@@ -383,6 +411,7 @@ $('#join-form').addEventListener('submit', (e) => {
   joinRoom($('#code-input').value);
 });
 $('#invite-join-btn').addEventListener('click', () => joinRoom(S.invite));
+$('#audience-btn').addEventListener('click', joinAudience);
 $('#invite-other-btn').addEventListener('click', () => showHome(null));
 $('#name-input').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
@@ -404,6 +433,7 @@ function onState(v) {
   document.body.classList.remove('rejoining');
   const prev = S.view;
   S.view = v;
+  document.body.classList.toggle('is-audience', !!v.audience);
   S.code = v.code;
   const me = player(v.me);
   const turn = v.turn;
@@ -516,6 +546,10 @@ function renderLobby() {
   for (let i = 0; i < slots; i++) items.push('<li class="lp lp-empty"><span class="avatar avatar-empty"></span><span class="lp-name">Waiting for a friend…</span></li>');
   $('#lobby-players').innerHTML = items.join('');
   $('#add-bot-btn').hidden = !host || v.players.length >= MAX_PLAYERS;
+  $('#audience-banner').hidden = !v.audience;
+  $('#take-seat-btn').hidden = !(v.audience && v.players.length < MAX_PLAYERS);
+  $('#crowd-line').hidden = !v.crowd;
+  $('#crowd-line').innerHTML = `<svg class="icon icon-sm"><use href="#i-eye"/></svg> ${v.crowd} in the audience`;
   $('#tv-link').href = `/tv/${v.code}`;
   $('#tv-on').hidden = !v.screens;
   $('#solo-hint').hidden = !(host && v.players.length === 1);
@@ -553,6 +587,8 @@ function renderLobby() {
     if (connected < 2) hint = 'You need at least 2 players — share the code or add a bot!';
     else if (needCustom) hint = 'Add at least 10 custom words, or pick another pack.';
     else hint = `${connected} players ready. Let's go!`;
+  } else if (v.audience) {
+    hint = `Waiting for ${hostPlayer ? esc(hostPlayer.name) : 'the host'} to start. Get your reactions ready!`;
   } else {
     hint = `Waiting for ${hostPlayer ? esc(hostPlayer.name) : 'the host'} to start the game…`;
   }
@@ -613,6 +649,12 @@ $('#lobby-players').addEventListener('click', async (e) => {
     const res = await emit('kick', k.dataset.kick);
     if (res.error) toast(res.error);
   }
+});
+
+$('#take-seat-btn').addEventListener('click', () => {
+  const name = S.view && S.view.audience ? S.view.audience.name : ls.get('dd.name');
+  if (name) $('#name-input').value = name;
+  joinRoom(S.code);
 });
 
 $('#start-btn').addEventListener('click', async () => {
@@ -708,7 +750,7 @@ function renderGame() {
     disp.innerHTML = wordHtml(t.word);
   } else if (drawing && t.mask) {
     const lens = maskLengths(t.mask);
-    label.innerHTML = `<span class="hide-narrow">Guess the word · </span>${lens.join(' + ')} letters${t.mult ? ` · <span class="diff diff-${t.difficulty}">${MULT_LABEL[t.mult]}</span>` : ''}`;
+    label.innerHTML = `<span class="hide-narrow">${v.audience ? 'Can you guess it?' : 'Guess the word'} · </span>${lens.join(' + ')} letters${t.mult ? ` · <span class="diff diff-${t.difficulty}">${MULT_LABEL[t.mult]}</span>` : ''}`;
     disp.innerHTML = maskHtml(t.mask);
   } else if (v.phase === 'reveal') {
     label.textContent = t && t.word ? 'The word was' : roundTxt;
@@ -748,6 +790,8 @@ function renderGame() {
     renderToolbar();
   }
 
+  $('#chat-form').hidden = !!v.audience;
+  $('#audience-bar').hidden = !v.audience;
   const input = $('#chat-input');
   const inTurn = v.phase === 'choosing' || drawing;
   const privateChat = inTurn && t && (amDrawer || (me && me.guessed));
@@ -822,7 +866,7 @@ function renderPlayers() {
         <span class="pl-score">${p.connected ? `${p.score} pts` : 'reconnecting…'}${gain}</span></span>
       </li>`;
     })
-    .join('');
+    .join('') + (v.crowd ? `<li class="pl pl-crowd"><svg class="icon icon-sm"><use href="#i-eye"/></svg><span>${v.crowd} watching</span></li>` : '');
 }
 
 function renderOverlay() {
@@ -1456,17 +1500,27 @@ $('#react-btn').addEventListener('click', (e) => {
   e.stopPropagation();
   setTray(reactTray.hidden);
 });
+const audienceBar = $('#audience-bar');
+audienceBar.innerHTML = STICKER_IDS.map((id) => `<button type="button" data-react="${id}" aria-label="${STICKERS[id].label}">${STICKERS[id].svg}</button>`).join('');
+audienceBar.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-react]');
+  if (b) sendReaction(b.dataset.react);
+});
 reactTray.addEventListener('click', async (e) => {
   e.stopPropagation();
   const b = e.target.closest('[data-react]');
   if (!b) return;
   setTray(true); // keep it open for rapid taps
-  const me = S.view && player(S.view.me);
-  floatReaction(b.dataset.react, me ? me.name : '', me ? me.color : '#999');
-  vibrate(10);
-  const res = await emit('react', b.dataset.react);
-  if (res.error === 'Slow down!') toast('Easy there!');
+  sendReaction(b.dataset.react);
 });
+
+async function sendReaction(id) {
+  const me = S.view && (player(S.view.me) || S.view.audience);
+  floatReaction(id, me ? me.name : '', me ? me.color : '#999');
+  vibrate(10);
+  const res = await emit('react', id);
+  if (res.error === 'Slow down!') toast('Easy there!');
+}
 document.addEventListener('click', (e) => {
   if (!reactTray.hidden && !e.target.closest('#react-tray, #react-btn')) setTray(false);
 });
