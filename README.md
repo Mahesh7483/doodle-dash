@@ -19,12 +19,21 @@ creating the room to the gallery.
   and chat that keeps the drawing in view while you type. It works on laptops too, with a
   three-column layout.
 - **One-tap join.** Friends scan the QR code or open the `/r/ABCD` link and they're in.
+- **Party mode on a TV.** Open `/tv` on a TV or laptop and type the room code. The big screen
+  shows the QR code and who's in, then the drawing, the blanks, the timer, the scores and every
+  guess, and at the end the podium and a looping slideshow of the gallery. Everyone plays on
+  their own phone. The TV sees exactly what a guesser sees, so it never shows the word early.
 - **Try it alone in seconds.** Tap **Add a bot** in the lobby. Bots draw hand-drawn doodles
   stroke by stroke, guess your drawing once there's something on the canvas, and chat a little.
+- **Live reactions.** Tap a sticker (😂 🔥 ❤️ 😮 🤔 ⭐, drawn in the game's own style) and it
+  floats up over the drawing on every screen, with your name on it.
 - **Risk vs. reward.** The drawer picks an easy (×1), medium (×1.5) or hard (×2) word. Harder
   words pay more for everyone.
-- **The Gallery.** At the end, every drawing replays stroke by stroke with its word and artist.
-  Tap one to see it big, or save it as a captioned PNG to share.
+- **Awards and the Gallery.** The podium hands out awards: *Lightning fingers* (fastest guess),
+  *Picasso* (most guesses on your drawings), *Early bird*, *So close!* and *Abstract artist*.
+  Then every drawing replays stroke by stroke. Tap ♥ on your favourites to crown the *Crowd
+  favourite*, watch it as a slideshow, or save one drawing (or the whole gallery as a poster)
+  as a PNG to share.
 - **Fair play.** The server owns the timer, the word and the scores. Guessers' browsers never
   receive the word before the reveal, and players who already guessed chat in a private
   channel so they can't spoil it.
@@ -32,6 +41,10 @@ creating the room to the gallery.
   to the same seat with the same score.
 
 ![Desktop layout: players, canvas and chat](docs/desktop.jpg)
+
+![Party mode on a TV: scores on the left, the drawing in the middle, guesses and the join QR code on the right](docs/tv.jpg)
+
+![The TV podium with awards: Lightning fingers, Picasso, Early bird, Abstract artist and Crowd favourite](docs/tv-podium.jpg)
 
 ---
 
@@ -41,7 +54,8 @@ creating the room to the gallery.
    code or share a link (`/r/ABCD`) so others join in one tap. 2–8 players.
 2. **Lobby.** The host sets rounds (2–5, default 3), draw time (60 / 80 / 100 s, default 80) and a
    word pack (Everyday, Animals, Food, Places, Actions, Mixed, or Custom words). Start needs at
-   least 2 players. Playing alone? The host can add bots, and they draw and guess too.
+   least 2 players. Playing alone? The host can add bots, and they draw and guess too. The
+   host can also remove a player who joined by mistake (they can't rejoin that room).
 3. **Each turn.** Every player draws once per round.
    - The drawer picks 1 of 3 words (one easy, one medium, one hard) within 15 s, or gets a
      random one.
@@ -52,13 +66,18 @@ creating the room to the gallery.
    - Players who already guessed (and the drawer) chat in a private channel only they can see.
    - The turn ends when the timer runs out or everyone has guessed. The word and the points
      are then shown for 5 s.
+   - Anyone can tap the smiley next to the chat to send a sticker reaction.
 4. **Scoring.**
    - Guesser: `round((100 + 200 × timeLeft / drawTime) × mult)`, so 100 to 300 base points,
      and faster guesses score more.
    - Drawer: `50 × (number of correct guessers) × mult`. If nobody guesses, the drawer scores 0.
    - `mult` is the difficulty multiplier: easy ×1, medium ×1.5, hard ×2.
-5. **End.** A podium for the top 3, then the Gallery. **Play again** takes everyone back to the
-   lobby in the same room with scores reset.
+5. **End.** A podium for the top 3 with awards, then the Gallery: like your favourite drawings
+   (not your own), play the slideshow, save PNGs or a poster. **Play again** takes everyone back
+   to the lobby in the same room with scores reset.
+
+**Playing in the same room?** Open `/tv` on a TV or laptop (or tap **Show it on a TV or laptop**
+in the lobby) and type the room code. The phones stay the controllers; the TV is the show.
 
 The same rules are in the game under **How to play** (on the home screen and in the lobby).
 
@@ -91,11 +110,11 @@ The first time you run the browser tests on your own machine you may need
 
 | Suite | What it checks |
 | --- | --- |
-| `test/game.test.js` | scoring and multipliers, hint schedule and the half-letters cap, guess matching and "so close", turns and rounds, early end when all guess, reconnect within 60 s, host migration, drawer disconnect, joining mid-game, room full, word packs, custom words |
-| `test/leak.test.js` | plays 25 randomized games (half of them with a bot) and checks that no payload sent to a guesser, including chat restored after a refresh, contains the word (or the drawer's choices) before they guess it or the reveal |
+| `test/game.test.js` | scoring and multipliers, hint schedule and the half-letters cap, guess matching and "so close", turns and rounds, early end when all guess, reconnect within 60 s, host migration, drawer disconnect, joining mid-game, room full, word packs, custom words, reactions, awards, likes, TV screens (guesser view, public chat only, no seat) and removing a player |
+| `test/leak.test.js` | plays 25 randomized games (half of them with a bot, all with a TV watching) and checks that no payload sent to a guesser or the TV, including chat restored after a refresh, contains the word (or the drawer's choices) before they guess it or the reveal |
 | `test/bots.test.js` | adding and removing bots, bots never hosting, a solo game against a bot played to the end (the bot draws its whole doodle and guesses only after there's ink), bots never leaking the word, every doodle is valid drawing data |
-| `test/integration.test.js` | starts the real server with short timers, plays a full 3-player game over Socket.IO to the end, checks every score against the formula, and repeats the leak check on what each socket received |
-| `e2e/game.spec.js` | desktop host + iPhone-size guest: create, join by link and by code, draw with mouse and touch, check the pixels appear on the other screen, refresh mid-turn as guesser and as drawer, guess, podium, gallery replay, Save PNG, play again; plus a phone playing a whole game alone against a bot |
+| `test/integration.test.js` | starts the real server with short timers, plays a full 3-player game over Socket.IO to the end with a TV socket watching, checks every score against the formula, repeats the leak check on what each socket (and the TV) received, and removes a player over sockets |
+| `e2e/game.spec.js` | desktop host + iPhone-size guest: create, join by link and by code, draw with mouse and touch, check the pixels appear on the other screen, refresh mid-turn as guesser and as drawer, guess, reactions, podium, gallery replay and likes, Save PNG, play again; a phone playing a whole game alone against a bot; and party mode: a 1080p TV follows a 3-player game (blanks only, the drawing, reactions, podium, slideshow) while the host removes a player |
 
 ---
 
@@ -142,15 +161,19 @@ Every push to the `main` branch redeploys automatically.
 - **Client** (`public/`): plain HTML, CSS and JavaScript with no build step. `canvas.js` draws on
   a fixed 800×600 canvas scaled to fit, so every screen shows the same picture; strokes are
   streamed to the other players in 40 ms chunks. `app.js` handles screens, chat and the gallery,
-  and `sound.js` makes the sound effects in the browser (with a mute button that remembers
-  your choice).
+  `stickers.js` has the reaction stickers and award icons, and `sound.js` makes the sound
+  effects in the browser (with a mute button that remembers your choice).
+- **TV screen** (`public/tv.html`, `tv.js`, `tv.css`): a separate page for big screens. It joins
+  a room as a *watcher*: the server sends it what a guesser sees plus the public chat, and it
+  holds no seat, so it can't guess, draw or be the host.
 - **Settings for testing**: `PORT` (default 3000), and `DD_DRAW_MS`, `DD_CHOOSE_MS`,
   `DD_REVEAL_MS`, `DD_DRAWER_GRACE_MS`, `DD_HOST_GRACE_MS`, `DD_SEAT_HOLD_MS` to shorten the
   timers.
 
 ```
 server/   index.js (HTTP + sockets), game.js (game logic, bots), words.js (word packs), doodles.js (bot drawings)
-public/   index.html, app.js, canvas.js, sound.js, style.css, fonts/, icons
+public/   index.html, app.js, canvas.js, stickers.js, sound.js, ui.js, style.css, fonts/, icons
+          tv.html, tv.js, tv.css (the TV screen)
 test/     node:test unit, leak and integration tests
 e2e/      Playwright browser test
 ```
