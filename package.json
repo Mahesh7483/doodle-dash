@@ -1,0 +1,27 @@
+{
+  "name": "doodle-dash",
+  "version": "1.0.0",
+  "description": "Phone-first real-time multiplayer drawing and guessing party game. Join with a 4-letter room code — no logins, no installs.",
+  "main": "server/index.js",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test:e2e": "playwright test",
+    "test:all": "npm test && npm run test:e2e"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "socket.io-client": "^4.8.3"
+  }
+}
