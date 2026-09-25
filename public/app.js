@@ -2069,7 +2069,9 @@ for (const b of $$('[data-open-help]')) {
 }
 for (const d of $$('dialog')) {
   d.addEventListener('click', (e) => {
-    if (e.target === d || e.target.closest('[data-close]')) d.close();
+    // The avatar editor only closes with ✕ or Save: a stroke that ends just outside the pad
+    // counts as a tap on the backdrop, which used to close it and lose the drawing.
+    if ((e.target === d && d.id !== 'avatar-dialog') || e.target.closest('[data-close]')) d.close();
   });
 }
 for (const b of $$('[data-leave]')) b.addEventListener('click', leaveRoom);
