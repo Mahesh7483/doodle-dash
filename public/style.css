@@ -4360,3 +4360,66 @@ body[data-screen='game'] .toast.show {
   background: var(--yellow);
   color: #1d1a2b;
 }
+
+/* Home: pick the game mode for the room you're making */
+.home-modes {
+  display: grid;
+  gap: 6px;
+}
+
+.hm-seg .seg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.hm-imp {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+}
+
+.hm-imp svg {
+  width: 20px;
+  height: 20px;
+}
+
+.hm-new {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #1d1a2b;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.hm-note {
+  margin: 0;
+  min-height: 2.6em;
+  font-size: 0.88rem;
+  line-height: 1.3;
+  color: var(--text-2);
+}
+
+/* Lobby: the nudge to try Impostor mode */
+.try-imp {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 2.5px dashed var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.try-imp:hover {
+  background: var(--yellow-soft);
+}

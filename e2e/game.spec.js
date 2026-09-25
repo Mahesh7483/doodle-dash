@@ -882,6 +882,8 @@ test('quick wins: a random name, tap the code to copy, share results, the host r
   expect(name).toMatch(/^\w+ \w+$/);
   await host.locator('#create-btn').click();
   await expect(host.locator('#lobby-players')).toContainText(name);
+  // A classic host gets a nudge to try Impostor mode.
+  await expect(host.locator('#try-impostor')).toBeVisible();
   await host.locator('#lobby-code').click();
   await expect(host.locator('#toast')).toContainText('copied');
   const code = (await host.locator('#lobby-code').textContent()) || '';
@@ -981,9 +983,14 @@ test('impostor mode: one line each, the impostor only sees the category, vote fr
   host.on('pageerror', (e) => errors.push(e.message));
   await host.goto('/');
   await host.locator('#name-input').fill('Maya');
+  // Picked on the home screen, before the room exists.
+  await host.locator('[data-home-mode="impostor"]').click();
+  await expect(host.locator('#hm-note')).toContainText("doesn't know the word");
   await host.locator('#create-btn').click();
   await expect(host.locator('#screen-lobby')).toBeVisible();
-  await host.locator('#set-mode button', { hasText: 'Impostor' }).click();
+  await expect(host.locator('#set-mode .on')).toContainText('Impostor');
+  await expect(host.locator('#toast')).toContainText('Impostor mode is on');
+  await expect(host.locator('#try-impostor')).toBeHidden();
   await expect(host.locator('#setting-time')).toBeHidden();
   await host.locator('#set-rounds button', { hasText: '2' }).click();
   const code = (await host.locator('#lobby-code').textContent()) || '';
@@ -1045,7 +1052,10 @@ test('impostor mode: one line each, the impostor only sees the category, vote fr
           await shot(guest, 'phone-21-impostor-vote');
         }
         await page.locator('#player-list li[data-vote]').first().click();
-        await expect(page.locator('#player-list li.voted-for')).toHaveCount(1);
+        // Highlighted until the vote closes (at once, if this was the last vote).
+        await expect
+          .poll(() => page.evaluate(() => window.__dd.S.view.phase !== 'vote' || document.querySelectorAll('#player-list li.voted-for').length === 1))
+          .toBe(true);
       }
       if (v.phase === 'lastChance' && t.role === 'impostor' && !done.has(key)) {
         done.add(key);

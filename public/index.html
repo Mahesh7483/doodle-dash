@@ -85,6 +85,13 @@
             </span>
           </label>
           <div id="home-create" class="home-actions">
+            <div id="home-modes" class="home-modes">
+              <div class="seg hm-seg" role="radiogroup" aria-label="Game mode for your room">
+                <button type="button" class="seg-btn" data-home-mode="classic" role="radio"><svg class="icon icon-sm"><use href="#i-brush"/></svg> Classic</button>
+                <button type="button" class="seg-btn" data-home-mode="impostor" role="radio"><span class="hm-imp"></span> Impostor <span class="hm-new">new</span></button>
+              </div>
+              <p id="hm-note" class="hm-note"></p>
+            </div>
             <button id="create-btn" class="btn btn-primary btn-lg btn-block" type="button">Create a room</button>
             <button id="link-btn" class="btn btn-link link-btn" type="button"><svg class="icon icon-sm"><use href="#i-share"/></svg> Get a link to share instead</button>
             <div id="link-panel" class="link-panel" hidden>
@@ -241,6 +248,7 @@
           <p id="lobby-notice" class="notice" hidden></p>
           <button id="start-btn" class="btn btn-primary btn-lg btn-block" type="button">Start game</button>
           <p id="start-hint" class="start-hint"></p>
+          <button id="try-impostor" class="try-imp" type="button" hidden>🕵️ <span>New: try <b>Impostor mode</b>. One of you secretly doesn't know the word!</span></button>
           <button id="last-gallery-btn" class="btn btn-ghost btn-block" type="button" hidden><svg class="icon"><use href="#i-image"/></svg> Last game's gallery</button>
         </div>
         </div>

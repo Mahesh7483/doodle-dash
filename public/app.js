@@ -306,6 +306,8 @@ function showHome(inviteCode) {
   history.replaceState(null, '', inviteCode ? `/r/${inviteCode}` : '/');
   S.invite = inviteCode || null;
   const invite = !!inviteCode;
+  $('#home-modes').hidden = invite; // joining someone else's room: their host picks
+  renderHomeModes();
   $('#invite-banner').hidden = !invite;
   $('#home-invite').hidden = !invite;
   $('#home-create').hidden = invite;
@@ -718,6 +720,9 @@ function renderLobby() {
     : 'One player draws, everyone else races to guess the word.';
   $('#setting-time').hidden = impMode;
   $('#setting-chaos').hidden = impMode;
+  // Hosts who haven't tried Impostor mode get a nudge right next to Start.
+  if (host && impMode) ls.set('dd.triedImp', '1');
+  $('#try-impostor').hidden = !(host && !impMode && !ls.get('dd.triedImp'));
   seg($('#set-rounds'), [2, 3, 4, 5].map((n) => [n, String(n)]), v.settings.rounds, host, (n) => updateSettings({ rounds: n }));
   seg($('#set-time'), [60, 80, 100].map((n) => [n, `${n}s`]), v.settings.drawTime, host, (n) => updateSettings({ drawTime: n }));
   seg($('#set-pack'), PACKS, v.settings.pack, host, (id) => updateSettings({ pack: id }), 'chip');
@@ -805,6 +810,35 @@ function rememberSettings(patch) {
   ls.set('dd.settings', JSON.stringify({ ...savedSettings(), ...keep }));
 }
 
+// Home screen: pick Classic or Impostor for the room you're about to make (applied like the
+// host's remembered settings once the room exists).
+$('.hm-imp').innerHTML = IMPOSTOR_ICON;
+function renderHomeModes() {
+  const mode = savedSettings().mode === 'impostor' ? 'impostor' : 'classic';
+  for (const b of $$('[data-home-mode]')) {
+    const on = b.dataset.homeMode === mode;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', String(on));
+  }
+  $('#hm-note').textContent = mode === 'impostor'
+    ? "Everyone adds a line to one drawing, but one of you secretly doesn't know the word!"
+    : 'One player draws, everyone else races to guess the word.';
+}
+$('#home-modes').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-home-mode]');
+  if (!b) return;
+  sfx.click();
+  rememberSettings({ mode: b.dataset.homeMode });
+  renderHomeModes();
+});
+$('#try-impostor').addEventListener('click', async () => {
+  const res = await updateSettings({ mode: 'impostor' });
+  if (!res.error) {
+    toast('🕵️ Impostor mode is on! You need 3 players: invite friends or add bots.', 5000);
+    $('#set-mode').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+});
+
 let settingsAppliedFor = null;
 function applySavedSettings(v) {
   if (settingsAppliedFor === v.code || v.phase !== 'lobby' || v.hostId !== v.me) return;
@@ -817,7 +851,9 @@ function applySavedSettings(v) {
   if (saved.pack === 'custom' && typeof saved.customWords === 'string') patch.customWords = saved.customWords;
   if (!Object.keys(patch).length) return;
   emit('settings', patch).then((res) => {
-    if (!res.error) toast('Your usual settings are back.');
+    if (res.error) return;
+    if (patch.mode === 'impostor') toast('🕵️ Impostor mode is on! You need 3 players: invite friends or add bots.', 5000);
+    else toast('Your usual settings are back.');
   });
 }
 
