@@ -125,7 +125,7 @@ function createServer(options = {}) {
     const m = /^([A-Za-z]{4})\.svg$/.exec(req.params.file);
     const code = m ? normalizeCode(m[1]) : '';
     if (!validCode(code)) return res.status(404).type('text/plain').send('Not found');
-    const url = `${req.protocol}://${req.get('host')}/r/${code}`;
+    const url = `${origin(req)}/r/${code}`;
     try {
       const svg = await QRCode.toString(url, {
         type: 'svg',
@@ -190,6 +190,26 @@ function createServer(options = {}) {
     const reply = (ack, payload) => {
       if (typeof ack === 'function') ack(payload);
     };
+    // A bug in one handler must not take the whole server (every room) down with it: Socket.IO
+    // runs handlers outside any try/catch, so a throw would crash the process.
+    const on = (event, fn) =>
+      socket.on(event, (...args) => {
+        try {
+          fn(...args);
+        } catch (err) {
+          console.error('socket handler error', event, err);
+          reply(args[args.length - 1], { error: 'Something went wrong. Please try again.' });
+        }
+      });
+    // Enough for typos, too slow to scan for room codes.
+    const tooManyTries = () => {
+      const now = Date.now();
+      joinTimes = joinTimes.filter((t) => now - t < 60000);
+      if (joinTimes.length >= 20) return true;
+      joinTimes.push(now);
+      return false;
+    };
+    const TOO_MANY = { error: 'Too many tries — wait a minute and check the code.' };
     const current = () => {
       const room = socket.data.code ? manager.getRoom(socket.data.code) : null;
       const pid = socket.data.pid;
@@ -239,9 +259,9 @@ function createServer(options = {}) {
       else room.connect(seat.id);
     };
 
-    socket.on('time', (ack) => reply(ack, Date.now()));
+    on('time', (ack) => reply(ack, Date.now()));
 
-    socket.on('room:create', (data, ack) => {
+    on('room:create', (data, ack) => {
       const now = Date.now();
       createTimes = createTimes.filter((t) => now - t < 60000);
       if (createTimes.length >= 6) return reply(ack, { error: 'Too many rooms — try again in a minute.' });
@@ -253,12 +273,8 @@ function createServer(options = {}) {
       bind(res.room, res.player);
     });
 
-    socket.on('room:join', (data, ack) => {
-      // Enough for typos, too slow to scan for room codes.
-      const now = Date.now();
-      joinTimes = joinTimes.filter((t) => now - t < 60000);
-      if (joinTimes.length >= 20) return reply(ack, { error: 'Too many tries — wait a minute and check the code.' });
-      joinTimes.push(now);
+    on('room:join', (data, ack) => {
+      if (tooManyTries()) return reply(ack, TOO_MANY);
       const { name, token, code } = data || {};
       const res = manager.join(code, token, name);
       if (res.error) return reply(ack, { error: res.error, full: !!res.full });
@@ -266,11 +282,8 @@ function createServer(options = {}) {
       bind(res.room, res.player);
     });
 
-    socket.on('room:audience', (data, ack) => {
-      const now = Date.now();
-      joinTimes = joinTimes.filter((t) => now - t < 60000);
-      if (joinTimes.length >= 20) return reply(ack, { error: 'Too many tries — wait a minute and check the code.' });
-      joinTimes.push(now);
+    on('room:audience', (data, ack) => {
+      if (tooManyTries()) return reply(ack, TOO_MANY);
       const { name, token, code } = data || {};
       const res = manager.joinAudience(code, token, name);
       if (res.error) return reply(ack, { error: res.error });
@@ -279,7 +292,8 @@ function createServer(options = {}) {
       bind(res.room, seat);
     });
 
-    socket.on('room:resume', (data, ack) => {
+    on('room:resume', (data, ack) => {
+      if (tooManyTries()) return reply(ack, TOO_MANY);
       const { token, code } = data || {};
       const res = manager.resume(code, token);
       if (res.error) return reply(ack, { error: res.error });
@@ -288,17 +302,14 @@ function createServer(options = {}) {
       bind(res.room, seat);
     });
 
-    socket.on('room:leave', (ack) => {
+    on('room:leave', (ack) => {
       detach();
       unwatch();
       reply(ack, { ok: true });
     });
 
-    socket.on('room:watch', (data, ack) => {
-      const now = Date.now();
-      joinTimes = joinTimes.filter((t) => now - t < 60000);
-      if (joinTimes.length >= 20) return reply(ack, { error: 'Too many tries — wait a minute and check the code.' });
-      joinTimes.push(now);
+    on('room:watch', (data, ack) => {
+      if (tooManyTries()) return reply(ack, TOO_MANY);
       const res = manager.watch((data || {}).code);
       if (res.error) return reply(ack, { error: res.error });
       detach();
@@ -309,7 +320,7 @@ function createServer(options = {}) {
       res.room.connectWatcher(res.id);
     });
 
-    socket.on('kick', (targetId, ack) => {
+    on('kick', (targetId, ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       const target = String(targetId);
@@ -323,82 +334,83 @@ function createServer(options = {}) {
       reply(ack, res);
     });
 
-    socket.on('settings', (patch, ack) => {
+    on('settings', (patch, ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       reply(ack, cur.room.updateSettings(cur.pid, patch));
     });
 
-    socket.on('bot:add', (ack) => {
+    on('bot:add', (ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       reply(ack, cur.room.addBot(cur.pid));
     });
 
-    socket.on('bot:remove', (botId, ack) => {
+    on('bot:remove', (botId, ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       reply(ack, cur.room.removeBot(cur.pid, String(botId)));
     });
 
-    socket.on('start', (ack) => {
+    on('start', (ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       reply(ack, cur.room.start(cur.pid));
     });
 
-    socket.on('choose', (index, ack) => {
+    on('choose', (index, ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       reply(ack, cur.room.chooseWord(cur.pid, index));
     });
 
-    socket.on('draw', (op) => {
+    on('draw', (op) => {
       const cur = current();
       if (cur) cur.room.draw(cur.pid, op);
     });
 
-    socket.on('chat', (text, ack) => {
+    on('chat', (text, ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       reply(ack, cur.room.chat(cur.pid, text));
     });
 
-    socket.on('avatar', (data, ack) => {
+    on('avatar', (data, ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       reply(ack, cur.room.setAvatar(cur.pid, data));
     });
 
-    socket.on('react', (emoji, ack) => {
+    on('react', (emoji, ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       reply(ack, cur.room.react(cur.pid, String(emoji)));
     });
 
-    socket.on('like', (index, on, ack) => {
+    on('like', (index, liked, ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
-      reply(ack, cur.room.like(cur.pid, index, on !== false));
+      reply(ack, cur.room.like(cur.pid, index, liked !== false));
     });
 
-    socket.on('feedback', (score, ack) => {
+    on('feedback', (score, ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       reply(ack, cur.room.feedback(cur.pid, score));
     });
 
-    socket.on('playAgain', (ack) => {
+    on('playAgain', (ack) => {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       reply(ack, cur.room.playAgain(cur.pid));
     });
 
-    socket.on('disconnect', () => {
+    on('disconnect', () => {
       unwatch();
       const cur = current();
+      // Forget this socket even when its room already closed (an audience member left watching).
+      if (socket.data.pid && sockets.get(socket.data.pid) === socket) sockets.delete(socket.data.pid);
       if (!cur) return;
-      sockets.delete(cur.pid);
       if (cur.room.audience.has(cur.pid)) cur.room.disconnectAudience(cur.pid);
       else cur.room.disconnect(cur.pid);
     });

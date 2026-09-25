@@ -16,6 +16,10 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/icon-192.png">
   <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Doodle Dash">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="preload" href="/fonts/fredoka-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
 </head>
@@ -114,6 +118,9 @@
         <button class="btn btn-ghost how-btn" type="button" data-open-help>
           <svg class="icon"><use href="#i-help"/></svg> How to play
         </button>
+        <button id="install-btn" class="btn btn-ghost how-btn" type="button" hidden>
+          <svg class="icon"><use href="#i-download"/></svg> Add to home screen
+        </button>
         <p class="home-foot">No logins. No installs. No ads. Just doodles.</p>
         <p class="rejoin-note" role="status">Rejoining your room…</p>
       </div>
@@ -206,6 +213,11 @@
             <div class="setting-label">Chaos rounds <span class="new-pill">new</span></div>
             <div id="set-chaos" class="seg" role="radiogroup" aria-label="Chaos rounds"></div>
             <p class="setting-note">Every turn gets a random twist: one line, blindfold, mirror, tiny brush, no take-backs or ink only.</p>
+          </div>
+          <div class="setting">
+            <div class="setting-label">Family-friendly chat</div>
+            <div id="set-clean" class="seg" role="radiogroup" aria-label="Family-friendly chat"></div>
+            <p class="setting-note">Rude words in chat show as ****. Names are always checked.</p>
           </div>
           <div id="custom-box" class="custom-box" hidden>
             <label class="field">

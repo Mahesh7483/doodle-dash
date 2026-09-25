@@ -359,7 +359,41 @@ test('HTTP: health check, QR code, invite links, static files', { timeout: 20000
   assert.equal(tvPage.status, 200);
   assert.match(await tvPage.text(), /src="\/tv\.js"/);
   assert.equal((await fetch(`${url}/tv`)).status, 200);
-  for (const f of ['/tv.js', '/tv.css', '/stickers.js', '/ui.js', '/', '/og.png', '/icon-192.png', '/manifest.webmanifest', '/app.js', '/canvas.js', '/style.css', '/sound.js', '/favicon.svg', '/socket.io/socket.io.min.js']) {
+  for (const f of ['/tv.js', '/tv.css', '/stickers.js', '/ui.js', '/avatar.js', '/', '/og.png', '/icon-192.png', '/manifest.webmanifest', '/app.js', '/canvas.js', '/style.css', '/sound.js', '/favicon.svg', '/socket.io/socket.io.min.js']) {
     assert.equal((await fetch(url + f)).status, 200, f);
   }
+  // Installable: a service worker that is always re-checked (so a new deploy is picked up).
+  const sw = await fetch(`${url}/sw.js`);
+  assert.equal(sw.status, 200);
+  assert.match(sw.headers.get('content-type'), /javascript/);
+  assert.equal(sw.headers.get('cache-control'), 'no-cache');
+  const manifest = await (await fetch(`${url}/manifest.webmanifest`)).json();
+  assert.equal(manifest.display, 'standalone');
+  assert.equal(manifest.start_url, '/');
+});
+
+test('a bug in one socket handler answers with an error instead of crashing the server', { timeout: 10000 }, async (t) => {
+  const { createServer } = require('../server/index');
+  const srv = createServer();
+  const port = await srv.listen(0);
+  const socket = await connect(`http://localhost:${port}`);
+  t.after(async () => {
+    socket.close();
+    await srv.close();
+  });
+  const call = (ev, ...a) => new Promise((r) => socket.emit(ev, ...a, r));
+  const made = await call('room:create', { name: 'Crashy', token: 'token-crashy-1' });
+  assert.ok(made.ok);
+  srv.manager.getRoom(made.code).chat = () => {
+    throw new Error('boom');
+  };
+  const err = console.error;
+  console.error = () => {};
+  try {
+    assert.deepEqual(await call('chat', 'hello'), { error: 'Something went wrong. Please try again.' });
+  } finally {
+    console.error = err;
+  }
+  assert.equal(typeof (await call('time')), 'number');
+  assert.ok((await call('settings', { rounds: 4 })).ok);
 });

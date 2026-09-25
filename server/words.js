@@ -127,7 +127,39 @@ function mixedPack() {
 }
 PACKS.mixed = mixedPack();
 
-const PACK_IDS = ['everyday', 'animals', 'food', 'places', 'actions', 'mixed', 'custom'];
+// Spanish words (added after Mixed, which stays English). Guesses ignore accents, so "arbol"
+// counts for "árbol".
+PACKS.spanish = {
+  label: 'Español',
+  easy: [
+    'sol', 'luna', 'casa', 'árbol', 'gato', 'perro', 'pez', 'flor', 'auto', 'barco',
+    'manzana', 'pan', 'leche', 'libro', 'mesa', 'silla', 'cama', 'llave', 'reloj', 'zapato',
+    'sombrero', 'pelota', 'estrella', 'nube', 'lluvia', 'huevo', 'queso', 'pato', 'vaca', 'oso',
+  ],
+  medium: [
+    'paraguas', 'mariposa', 'elefante', 'jirafa', 'pingüino', 'tortuga', 'cohete', 'guitarra', 'bicicleta', 'tijeras',
+    'arcoíris', 'globo', 'corona', 'hongo', 'piña', 'sandía', 'fresa', 'helado', 'pastel', 'castillo',
+    'dragón', 'sirena', 'pirata', 'fantasma', 'robot', 'cámara', 'escalera', 'vela', 'espejo', 'ancla',
+  ],
+  hard: [
+    'muñeco de nieve', 'faro', 'volcán', 'bombilla', 'molino de viento', 'globo aerostático', 'telescopio',
+    'paracaídas', 'murciélago', 'cocodrilo', 'pulpo', 'caracol', 'esqueleto', 'semáforo', 'lavadora',
+    'montaña rusa', 'rascacielos', 'tiburón', 'astronauta', 'dinosaurio', 'unicornio', 'extintor',
+    'microscopio', 'reloj de arena', 'alcancía', 'sacapuntas', 'trampolín', 'huella', 'tobogán', 'pirámide',
+  ],
+};
+for (const d of DIFFICULTIES) PACKS.spanish[d] = PACKS.spanish[d].map((w) => w.normalize('NFC'));
+
+// Bots draw from their own doodle library (English names); in a Spanish game the word is this.
+const DOODLE_ES = {
+  sun: 'sol', house: 'casa', tree: 'árbol', fish: 'pez', cat: 'gato', apple: 'manzana', car: 'auto',
+  boat: 'barco', flower: 'flor', snowman: 'muñeco de nieve', rainbow: 'arcoíris', balloon: 'globo',
+  umbrella: 'paraguas', mushroom: 'hongo', crown: 'corona', lighthouse: 'faro', volcano: 'volcán',
+  'light bulb': 'bombilla', 'hot air balloon': 'globo aerostático', windmill: 'molino de viento',
+};
+for (const k of Object.keys(DOODLE_ES)) DOODLE_ES[k] = DOODLE_ES[k].normalize('NFC');
+
+const PACK_IDS = ['everyday', 'animals', 'food', 'places', 'actions', 'mixed', 'spanish', 'custom'];
 const PACK_LABELS = Object.fromEntries(PACK_IDS.map((id) => [id, id === 'custom' ? 'Custom words' : PACKS[id].label]));
 
 // Custom words: comma (or newline) separated, 2–30 chars each, letters/spaces/hyphens/apostrophes only.
@@ -147,4 +179,4 @@ function parseCustomWords(input) {
   return words;
 }
 
-module.exports = { PACKS, PACK_IDS, PACK_LABELS, DIFFICULTIES, MULTIPLIERS, parseCustomWords };
+module.exports = { PACKS, PACK_IDS, PACK_LABELS, DIFFICULTIES, MULTIPLIERS, DOODLE_ES, parseCustomWords };

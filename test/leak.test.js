@@ -43,6 +43,7 @@ function playAndCheck(seed) {
   room.updateSettings(ids[0], { rounds: 2 });
   if (seed % 2 === 0) room.addBot(ids[0]); // bots chat and guess too
   if (seed % 3 === 0) room.updateSettings(ids[0], { chaos: true });
+  if (seed % 4 === 0) room.updateSettings(ids[0], { pack: 'spanish' });
   // A TV screen watches every game: it must never learn the word before the reveal either.
   const tv = env.manager.watch(room.code);
   room.connectWatcher(tv.id);
@@ -57,7 +58,8 @@ function playAndCheck(seed) {
   const check = (from) => {
     const t = room.turn;
     const inTurn = room.phase === 'choosing' || room.phase === 'drawing';
-    const words = inTurn ? t.choices.map((c) => c.word) : [];
+    // A bot's doodle name (English) would give a Spanish word away too.
+    const words = inTurn ? t.choices.flatMap((c) => (c.doodle && c.doodle !== c.word ? [c.word, c.doodle] : [c.word])) : [];
     for (let i = from; i < sent.length; i++) {
       const m = sent[i];
       if (!m.inTurn) continue;

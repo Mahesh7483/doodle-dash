@@ -42,7 +42,8 @@ favourite, and can save a drawing, or the whole gallery as one poster, to share.
 Playing in one room? Open the TV screen on a TV or laptop: it shows the join QR code, the drawing,
 the scores and every guess, then the podium and a looping gallery slideshow, while phones stay the
 controllers. When all 8 seats are taken, anyone else who scans joins the audience (up to 50) to
-watch, react and vote for the best drawing, which makes it work for a classroom.
+watch, react and vote for the best drawing, which makes it work for a classroom. Names are checked for rude words and a family-friendly chat
+filter is on by default. There's a Spanish word pack too, and the lobby keeps a trophy count of who won each game.
 
 Details that make it hold up with real friends on real phones: the server keeps the timer, word
 and scores, so the word never reaches a guesser's device early. Refreshing or locking your phone

@@ -5,8 +5,9 @@
 // injected `send(playerId, event, payload)` so tests can inspect every payload.
 
 const crypto = require('crypto');
-const { PACKS, PACK_IDS, MULTIPLIERS, parseCustomWords } = require('./words');
+const { PACKS, PACK_IDS, MULTIPLIERS, DOODLE_ES, parseCustomWords } = require('./words');
 const { doodleOps, doodleWords, LIBRARY } = require('./doodles');
+const { isRude, censor } = require('./filter');
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ'; // no I, L, O
 const MAX_PLAYERS = 8;
@@ -61,9 +62,13 @@ const MAX_AUDIENCE = 50;
 // Rooms made from a share link start empty; the first person to join becomes the host. An
 // unused one closes after roomIdleMs like any empty room. This caps how many can wait at once.
 const MAX_EMPTY_ROOMS = 300;
+// All rooms at once (each is small, but this keeps a flood of room:create from eating memory).
+const MAX_ROOMS = 2000;
 
 // After a game, if the host doesn't restart, any player can after this long.
 const PLAY_AGAIN_ANYONE_MS = 30000;
+
+const RUDE_NAME = 'Please pick a friendlier name.';
 
 function newStats() {
   return { since: Date.now(), gamesStarted: 0, gamesFinished: 0, chaosGames: 0, players: 0, fun: { 1: 0, 2: 0, 3: 0 } };
@@ -79,7 +84,8 @@ const DEFAULT_TIMING = {
   drawMs: null, // test override for the host's draw time
 };
 
-const DEFAULT_SETTINGS = { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false };
+// clean: the family-friendly chat filter (names are always checked).
+const DEFAULT_SETTINGS = { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false, clean: true };
 
 // ---------------------------------------------------------------------------
 // Text helpers
@@ -317,6 +323,7 @@ class Room {
   addPlayer(token, rawName) {
     const name = sanitizeName(rawName);
     if (!name) return { error: 'Please enter a name (1–16 characters).' };
+    if (isRude(name)) return { error: RUDE_NAME };
     if (!validToken(token)) return { error: 'Bad session token. Please reload the page.' };
     if (this.isFull()) return { error: 'Room is full' };
     const player = {
@@ -380,8 +387,12 @@ class Room {
       this.players = [];
       this.hostId = null;
       this.phase = 'lobby';
+      this.round = 0;
       this.turn = null;
       this.endsAt = 0;
+      this.drawOrder = [];
+      this.turnIndex = -1;
+      this.notice = null;
       if (this.emptySince == null) this.emptySince = this.now();
       this.broadcastState(); // only TV screens are left to tell
       return;
@@ -486,6 +497,7 @@ class Room {
   addAudience(token, rawName) {
     const name = sanitizeName(rawName);
     if (!name) return { error: 'Please enter a name (1–16 characters).' };
+    if (isRude(name)) return { error: RUDE_NAME };
     if (!validToken(token)) return { error: 'Bad session token. Please reload the page.' };
     const existing = this.audienceByToken(token);
     if (existing) return { member: existing };
@@ -578,6 +590,7 @@ class Room {
     }
     if (patch.pack != null && PACK_IDS.includes(patch.pack)) s.pack = patch.pack;
     if (typeof patch.chaos === 'boolean') s.chaos = patch.chaos;
+    if (typeof patch.clean === 'boolean') s.clean = patch.clean;
     let error = null;
     if (patch.customWords != null) {
       this.customWords = parseCustomWords(patch.customWords);
@@ -665,11 +678,15 @@ class Room {
   pickChoices(drawer) {
     const taken = new Set();
     if (drawer && drawer.bot) {
-      return ['easy', 'medium', 'hard'].map((difficulty) => ({
-        word: this.pickWord(doodleWords(difficulty), taken),
-        difficulty,
-        mult: MULTIPLIERS[difficulty],
-      }));
+      // Bots draw from their doodle library; in a Spanish game the word is its Spanish name.
+      // (Picked by the word itself, so a word already drawn this game isn't picked again.)
+      const es = this.settings.pack === 'spanish';
+      return ['easy', 'medium', 'hard'].map((difficulty) => {
+        const doodles = doodleWords(difficulty);
+        const word = this.pickWord(es ? doodles.map((d) => DOODLE_ES[d]) : doodles, taken);
+        const doodle = es ? doodles.find((d) => DOODLE_ES[d] === word) : word;
+        return { word, doodle, difficulty, mult: MULTIPLIERS[difficulty] };
+      });
     }
     const levels = this.settings.pack === 'custom' ? ['medium', 'medium', 'medium'] : ['easy', 'medium', 'hard'];
     return levels.map((difficulty) => ({
@@ -766,6 +783,7 @@ class Room {
     const now = this.now();
     const t = this.turn;
     t.word = choice.word;
+    t.doodle = choice.doodle || null;
     t.difficulty = choice.difficulty;
     t.mult = choice.mult;
     t.drawStartedAt = now;
@@ -785,8 +803,9 @@ class Room {
     const t = this.turn;
     const drawer = this.drawer;
     const rng = this.rng;
-    if (drawer && drawer.bot && LIBRARY[t.word]) {
-      const ops = chaosOps(doodleOps(t.word), t.chaos, rng);
+    const doodle = t.doodle || t.word;
+    if (drawer && drawer.bot && LIBRARY[doodle]) {
+      const ops = chaosOps(doodleOps(doodle), t.chaos, rng);
       t.botDraw = {
         ops,
         total: ops.reduce((n, o) => n + (o.t === 's' ? o.p.length / 2 : 20), 0),
@@ -798,7 +817,8 @@ class Room {
         duration: Math.max(6000, Math.min(15000, this.drawMs() * 0.25)),
       };
     }
-    const pool = PACKS.mixed.easy.concat(PACKS.mixed.medium, PACKS.mixed.hard, doodleWords());
+    const words = this.settings.pack === 'spanish' ? PACKS.spanish : PACKS.mixed;
+    const pool = words.easy.concat(words.medium, words.hard, this.settings.pack === 'spanish' ? [] : doodleWords());
     for (const bot of this.players) {
       if (!bot.bot || bot.id === t.drawerId) continue;
       const think = 3000 + (BOT_THINK_EXTRA[t.difficulty] || 2500) + rng() * 9000;
@@ -998,6 +1018,9 @@ class Room {
     this.fun = new Map(); // player/audience id -> 1..3
     this.usage.gamesFinished++;
     this.usage.players += this.players.filter((p) => !p.bot).length;
+    // Wins across games in this room (a tie counts for everyone on top).
+    const top = Math.max(0, ...this.players.map((p) => p.score));
+    if (top > 0) for (const p of this.players) if (p.score === top) p.wins = (p.wins || 0) + 1;
     this.awards = this.computeAwards();
     this.system('Game over!', 'round');
     this.broadcastState();
@@ -1119,7 +1142,8 @@ class Room {
     const text = sanitizeChat(raw);
     if (!text) return { error: 'Empty message.' };
     if (!p.bot && this.rateLimited(p, 'chatTimes', CHAT_PER_SEC)) return { error: 'Slow down!' };
-    const msg = { name: p.name, color: p.color, from: p.id, text };
+    // The guess is checked as typed; what others see goes through the filter.
+    const msg = { name: p.name, color: p.color, from: p.id, text: this.settings.clean ? censor(text) : text };
     const t = this.turn;
     const inTurn = this.phase === 'choosing' || this.phase === 'drawing';
 
@@ -1326,6 +1350,7 @@ class Room {
         drawTime: this.settings.drawTime,
         pack: this.settings.pack,
         chaos: this.settings.chaos,
+        clean: this.settings.clean,
         customCount: this.customWords.length,
       },
       players: this.players.map((p) => ({
@@ -1337,6 +1362,7 @@ class Room {
         guessed: p.guessed,
         bot: !!p.bot,
         av: p.av || 0,
+        wins: p.wins || 0,
       })),
       endsAt: this.endsAt,
       phaseMs: this.endsAt ? this.phaseMs : 0,
@@ -1570,7 +1596,9 @@ class RoomManager {
 
   createRoom(token, name) {
     if (!sanitizeName(name)) return { error: 'Please enter a name (1–16 characters).' };
+    if (isRude(sanitizeName(name))) return { error: RUDE_NAME };
     if (!validToken(token)) return { error: 'Bad session token. Please reload the page.' };
+    if (this.rooms.size >= MAX_ROOMS) return { error: 'The server is very busy right now. Try again in a few minutes.' };
     const code = this.newCode();
     const room = new Room(code, { ...this.opts, timing: this.timing });
     const res = room.addPlayer(token, name);
@@ -1583,7 +1611,7 @@ class RoomManager {
   createEmptyRoom() {
     let empty = 0;
     for (const r of this.rooms.values()) if (!r.players.length) empty++;
-    if (empty >= MAX_EMPTY_ROOMS) return { error: 'Lots of new rooms are waiting right now. Try again in a minute.' };
+    if (empty >= MAX_EMPTY_ROOMS || this.rooms.size >= MAX_ROOMS) return { error: 'Lots of new rooms are waiting right now. Try again in a minute.' };
     const code = this.newCode();
     const room = new Room(code, { ...this.opts, timing: this.timing });
     this.rooms.set(code, room);
@@ -1647,7 +1675,12 @@ class RoomManager {
   tick() {
     const now = this.now();
     for (const [code, room] of this.rooms) {
-      room.tick();
+      // One room hitting a bug must not stop the clock for every room after it.
+      try {
+        room.tick();
+      } catch (err) {
+        console.error('room tick error', code, err);
+      }
       if (room.humansConnected().length === 0) {
         if (room.emptySince == null) room.emptySince = now;
         if (now - room.emptySince >= this.timing.roomIdleMs) {
@@ -1687,6 +1720,7 @@ module.exports = {
   MAX_WATCHERS,
   MAX_AUDIENCE,
   MAX_EMPTY_ROOMS,
+  MAX_ROOMS,
   PLAY_AGAIN_ANYONE_MS,
   AVATAR_SIZES,
   sanitizeAvatar,

@@ -14,6 +14,7 @@ const PACKS = [
   ['places', 'Places'],
   ['actions', 'Actions'],
   ['mixed', 'Mixed'],
+  ['spanish', 'Español'],
   ['custom', 'Custom'],
 ];
 const DIFF_LABEL = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
@@ -175,7 +176,7 @@ socket.on('connect', async () => {
     }
     // Seat expired: offer to join that room again. Room closed (e.g. server restart): start fresh.
     const closed = /closed/.test(res.error || '');
-    if (closed) toast('The game server restarted, so that room is gone. Start a new one in a tap!', 6000);
+    if (closed) toast('That room has closed (everyone left, or the server restarted). Start a new one in a tap!', 6000);
     else if (wasIn) toast(res.error || 'Could not rejoin the room.');
     forgetRoom();
     showHome(S.invite || (closed ? null : code));
@@ -231,6 +232,14 @@ socket.on('kicked', () => {
   forgetRoom();
   showHome(null);
   toast('The host removed you from the room.');
+});
+// Nobody played for a while, so the server closed the room (the audience was still watching).
+socket.on('roomClosed', () => {
+  S.code = null;
+  S.view = null;
+  forgetRoom();
+  showHome(null);
+  toast('That room closed after everyone left. Start a new one in a tap!', 6000);
 });
 socket.on('replaced', () => {
   S.code = null;
@@ -659,6 +668,7 @@ function renderLobby() {
     if (p.id === v.hostId) tags.push('<span class="tag tag-host"><svg class="icon icon-xs"><use href="#i-crown"/></svg>host</span>');
     if (p.id === v.me) tags.push('<span class="tag tag-you">you</span>');
     if (p.bot) tags.push('<span class="tag tag-bot">bot</span>');
+    if (p.wins) tags.push(winsTag(p));
     if (!p.connected) tags.push('<span class="tag tag-away">reconnecting…</span>');
     let remove = '';
     if (host && p.bot) remove = `<button type="button" class="lp-remove" data-remove-bot="${esc(p.id)}" aria-label="Remove ${esc(p.name)}"><svg class="icon icon-sm"><use href="#i-close"/></svg></button>`;
@@ -687,6 +697,7 @@ function renderLobby() {
   seg($('#set-time'), [60, 80, 100].map((n) => [n, `${n}s`]), v.settings.drawTime, host, (n) => updateSettings({ drawTime: n }));
   seg($('#set-pack'), PACKS, v.settings.pack, host, (id) => updateSettings({ pack: id }), 'chip');
   seg($('#set-chaos'), [[false, 'Off'], [true, 'On']], !!v.settings.chaos, host, (on) => updateSettings({ chaos: on }));
+  seg($('#set-clean'), [[false, 'Off'], [true, 'On']], v.settings.clean !== false, host, (on) => updateSettings({ clean: on }));
   $('#settings-lock').hidden = host;
   const custom = v.settings.pack === 'custom';
   $('#custom-box').hidden = !(custom && host);
@@ -764,7 +775,7 @@ function savedSettings() {
 
 function rememberSettings(patch) {
   const keep = {};
-  for (const k of ['rounds', 'drawTime', 'pack', 'chaos', 'customWords']) if (patch[k] !== undefined) keep[k] = patch[k];
+  for (const k of ['rounds', 'drawTime', 'pack', 'chaos', 'clean', 'customWords']) if (patch[k] !== undefined) keep[k] = patch[k];
   ls.set('dd.settings', JSON.stringify({ ...savedSettings(), ...keep }));
 }
 
@@ -776,7 +787,7 @@ function applySavedSettings(v) {
   settingsAppliedFor = v.code;
   const saved = savedSettings();
   const patch = {};
-  for (const k of ['rounds', 'drawTime', 'pack', 'chaos']) if (saved[k] !== undefined && saved[k] !== v.settings[k]) patch[k] = saved[k];
+  for (const k of ['rounds', 'drawTime', 'pack', 'chaos', 'clean']) if (saved[k] !== undefined && saved[k] !== v.settings[k]) patch[k] = saved[k];
   if (saved.pack === 'custom' && typeof saved.customWords === 'string') patch.customWords = saved.customWords;
   if (!Object.keys(patch).length) return;
   emit('settings', patch).then((res) => {
@@ -1333,7 +1344,8 @@ function renderPodium() {
   const sorted = [...v.players].sort((a, b) => b.score - a.score);
   const top = sorted.slice(0, 3);
   const tie = sorted.length > 1 && sorted[0].score === sorted[1].score;
-  $('#winner-title').innerHTML = tie ? "It's a tie!" : `${esc(sorted[0] ? sorted[0].name : '')} wins!`;
+  const streak = !tie && sorted[0] && sorted[0].wins > 1 ? ` <span class="win-count">${ordinal(sorted[0].wins)} win!</span>` : '';
+  $('#winner-title').innerHTML = tie ? "It's a tie!" : `${esc(sorted[0] ? sorted[0].name : '')} wins!${streak}`;
   const order = [top[1], top[0], top[2]];
   const place = ['second', 'first', 'third'];
   const label = ['2nd', '1st', '3rd'];
@@ -1847,8 +1859,18 @@ function confetti() {
 // Shared UI bits
 
 // A drawn avatar shows through the av-<id> class as soon as it's known (see avatar.js).
+// Wins in this room (across games), shown next to the name.
+function winsTag(p) {
+  return `<span class="tag tag-wins" title="${p.wins} win${p.wins === 1 ? '' : 's'} in this room" aria-label="${p.wins} win${p.wins === 1 ? '' : 's'}">🏆 ${p.wins}</span>`;
+}
+
+function ordinal(n) {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : { 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] || 'th';
+  return `${n}${s}`;
+}
+
 function avatar(p, cls = '') {
-  const initial = p.bot ? '🤖' : esc([...(p.name || '?').trim()][0] || '?').toUpperCase();
+  const initial = p.bot ? '🤖' : esc(([...(p.name || '?').trim()][0] || '?').toUpperCase());
   const art = !p.bot && p.id && /^[A-Za-z0-9_-]+$/.test(p.id) ? ` av-${p.id}` : '';
   return `<span class="avatar ${cls}${p.bot ? ' avatar-bot' : ''}${art}" style="--pc:${esc(p.color || '#999')}" aria-hidden="true">${initial}</span>`;
 }
@@ -2097,6 +2119,31 @@ fitViewport();
 // Coming back to the tab: reconnect straight away instead of waiting for backoff.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && !socket.connected) socket.connect();
+});
+
+// Installable app: a service worker (network first, so a new deploy is never hidden behind an
+// old copy) and, where the browser offers it, an "Add to home screen" button.
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}));
+}
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  installPrompt = e;
+  $('#install-btn').hidden = false;
+});
+window.addEventListener('appinstalled', () => {
+  installPrompt = null;
+  $('#install-btn').hidden = true;
+});
+$('#install-btn').addEventListener('click', async () => {
+  if (!installPrompt) return;
+  const p = installPrompt;
+  installPrompt = null;
+  $('#install-btn').hidden = true;
+  try {
+    await p.prompt();
+  } catch (_) { /* dismissed */ }
 });
 
 // Test hooks (used by the automated browser tests).

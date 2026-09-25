@@ -445,6 +445,10 @@ test('solo: one phone plays a whole game against a bot', async ({ browser }) => 
   const stats = await (await page.request.get('/stats')).json();
   expect(stats.gamesFinished).toBeGreaterThanOrEqual(1);
   expect(stats.fun.loved).toBeGreaterThanOrEqual(1);
+  // Back in the lobby, the winner (or both, after a tie) carries a win badge into the next game.
+  await page.locator('[data-play-again]:visible').click();
+  await expect(page.locator('#screen-lobby')).toBeVisible();
+  await expect(page.locator('#lobby-players .tag-wins').first()).toHaveText('🏆 1');
   expect(errors).toEqual([]);
   await ctx.close();
 });
@@ -907,6 +911,58 @@ test('quick wins: a random name, tap the code to copy, share results, the host r
 
   // Share results appears on the podium (checked by its presence; the game itself is covered elsewhere).
   await expect(host.locator('#share-results-btn')).toHaveCount(1);
+  expect(errors).toEqual([]);
+  await deskCtx.close();
+  await guestCtx.close();
+});
+
+test('family-friendly chat, rude names refused, the Spanish pack, and the installable app', async ({ browser }) => {
+  const { PACKS } = require('../server/words');
+  const deskCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const guestCtx = await browser.newContext({ ...phoneDevice });
+  const host = await deskCtx.newPage();
+  const errors = [];
+  host.on('pageerror', (e) => errors.push(e.message));
+  await host.goto('/');
+  await host.locator('#name-input').fill('B1tch');
+  await host.locator('#create-btn').click();
+  await expect(host.locator('#home-error')).toContainText('friendlier name');
+  await host.locator('#name-input').fill('Sofía');
+  await host.locator('#create-btn').click();
+  await expect(host.locator('#screen-lobby')).toBeVisible();
+  // Installable: the service worker is registered and the manifest is linked.
+  await expect.poll(() => host.evaluate(async () => !!(await navigator.serviceWorker.getRegistration())), { timeout: 10000 }).toBe(true);
+  await expect(host.locator('link[rel="manifest"]')).toHaveCount(1);
+  await expect(host.locator('meta[name="apple-mobile-web-app-capable"]')).toHaveCount(1);
+
+  // Family-friendly chat is on by default. The host picks the Spanish words.
+  await expect(host.locator('#set-clean .on')).toHaveText('On');
+  await host.locator('#set-pack button', { hasText: 'Español' }).click();
+  await expect(host.locator('#set-pack .on')).toHaveText('Español');
+  const code = (await host.locator('#lobby-code').textContent()) || '';
+
+  const guest = await guestCtx.newPage();
+  guest.on('pageerror', (e) => errors.push(e.message));
+  await guest.goto(`/r/${code}`);
+  await guest.locator('#name-input').fill('Mateo');
+  await guest.locator('#invite-join-btn').click();
+  await expect(guest.locator('#screen-lobby')).toBeVisible();
+  await expect(guest.locator('#set-pack .on')).toHaveText('Español');
+  await guest.locator('#lobby-chat-input').fill('this is shit lol');
+  await guest.locator('#lobby-chat-input').press('Enter');
+  await expect(host.locator('#lobby-chat-log')).toContainText('this is **** lol');
+  await shot(guest, 'phone-20-family-friendly-chat');
+
+  // The host draws first and picks from Spanish words; the guest guesses without the accents.
+  await host.locator('#start-btn').click();
+  await expect(host.locator('.choice')).toHaveCount(3);
+  const all = [...PACKS.spanish.easy, ...PACKS.spanish.medium, ...PACKS.spanish.hard];
+  for (const w of await host.locator('.choice .choice-word').allTextContents()) expect(all).toContain(w.trim());
+  await host.locator('.choice-easy').click();
+  await expect(guest.locator('#word-display .mask')).toBeVisible();
+  const word = await host.evaluate(() => window.__dd.S.view.turn.word);
+  await guess(guest, word.normalize('NFD').replace(/\p{M}/gu, ''));
+  await expect(guest.locator('#chat-log .msg-you-correct')).toHaveCount(1);
   expect(errors).toEqual([]);
   await deskCtx.close();
   await guestCtx.close();

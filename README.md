@@ -28,7 +28,13 @@ creating the room to the gallery.
   finger drawings look good. First-timers get a few one-time tips, and the host's settings are
   remembered for their next room. There's chat and stickers in the lobby while you wait, a 🎲
   for a quick fun name, and if the host wanders off after a game, anyone can press Play again
-  after 30 seconds. It works on laptops too, with a three-column layout.
+  after 30 seconds. It works on laptops too, with a three-column layout, and you can add it
+  to your home screen like an app.
+- **Safe for a class or a family.** Names are checked for rude words, and a **family-friendly
+  chat** filter (on by default, the host can turn it off) shows them as `****`. It matches
+  whole words only, so "class" and "Scunthorpe" are fine, and it sees through tricks like
+  "sh1t". There's a **Spanish word pack** (*Español*, accents optional when guessing), and
+  the lobby keeps a 🏆 tally of who won each game in the room.
 - **One-tap join.** Friends scan the QR code or open the `/r/ABCD` link and they're in. You
   can also get a **share link** before joining: the server makes the room, you drop the link in
   the group chat, and whoever opens it first is the host (or just open `/new`).
@@ -73,10 +79,11 @@ creating the room to the gallery.
    to share instead** (or open `/new`): the server makes an empty room, and whoever joins first
    is the host. An unused room closes after 30 minutes.
 2. **Lobby.** The host sets rounds (2–5, default 3), draw time (60 / 80 / 100 s, default 80) and a
-   word pack (Everyday, Animals, Food, Places, Actions, Mixed, or Custom words). Start needs at
+   word pack (Everyday, Animals, Food, Places, Actions, Mixed, Español, or Custom words). Start needs at
    least 2 players. Playing alone? The host can add bots, and they draw and guess too. The
    host can also remove a player who joined by mistake (they can't rejoin that room), and turn
-   on **Chaos rounds** (below). Tap your face in the list to **draw your own avatar**.
+   on **Chaos rounds** (below) or turn off the **family-friendly chat** filter. Tap your face
+   in the list to **draw your own avatar**. After each game, the winner gets a 🏆 in the list.
    If the room is full, newcomers can join the **audience**: they watch, react and vote, but
    don't play.
 3. **Each turn.** Every player draws once per round.
@@ -137,11 +144,11 @@ The first time you run the browser tests on your own machine you may need
 
 | Suite | What it checks |
 | --- | --- |
-| `test/game.test.js` | scoring and multipliers, hint schedule and the half-letters cap, guess matching and "so close", turns and rounds, early end when all guess, reconnect within 60 s, host migration, drawer disconnect, joining mid-game, room full, word packs, custom words, reactions, awards, likes, TV screens (guesser view, public chat only, no seat), removing a player, drawn avatars (validation, lobby only), chaos rounds (every rule enforced, bots following each twist) and the audience (view, reactions, votes, seats, limits) |
-| `test/leak.test.js` | plays 25 randomized games (half with a bot, a third with chaos rounds, all with a TV and an audience member watching) and checks that no payload sent to a guesser, the TV or the audience, including chat restored after a refresh, contains the word (or the drawer's choices) before they guess it or the reveal |
+| `test/game.test.js` | scoring and multipliers, hint schedule and the half-letters cap, guess matching and "so close", turns and rounds, early end when all guess, reconnect within 60 s, host migration, drawer disconnect, joining mid-game, room full, word packs, custom words, reactions, awards, likes, TV screens (guesser view, public chat only, no seat), removing a player, drawn avatars (validation, lobby only), chaos rounds (every rule enforced, bots following each twist), the audience (view, reactions, votes, seats, limits), the Spanish pack (accents optional, bots drawing Spanish words), the family-friendly filter, the win tally, and that one broken room can't stop the others |
+| `test/leak.test.js` | plays 25 randomized games (half with a bot, a third with chaos rounds, a quarter in Spanish, all with a TV and an audience member watching) and checks that no payload sent to a guesser, the TV or the audience, including chat restored after a refresh, contains the word (or the drawer's choices) before they guess it or the reveal |
 | `test/bots.test.js` | adding and removing bots, bots never hosting, a solo game against a bot played to the end (the bot draws its whole doodle and guesses only after there's ink), bots never leaking the word, every doodle is valid drawing data |
-| `test/integration.test.js` | starts the real server with short timers, plays a full 3-player game over Socket.IO to the end with a TV socket watching, checks every score against the formula, repeats the leak check on what each socket (and the TV) received, removes a player, and has a 9th person join the audience, react and then take a free seat |
-| `e2e/game.spec.js` | desktop host + iPhone-size guest: create, join by link and by code, draw with mouse and touch, check the pixels appear on the other screen, refresh mid-turn as guesser and as drawer, guess, reactions, podium, gallery replay and likes, Save PNG, play again; a phone playing a whole game alone against a bot; and party mode: a 1080p TV follows a 3-player game (blanks only, the drawing, reactions, podium, slideshow) while the host removes a player; a drawn avatar showing on another screen and a 9th person reacting from the audience; and chaos rounds (a mirrored stroke lands on the other side, the bot's one-line turn, the blindfold cover) |
+| `test/integration.test.js` | starts the real server with short timers, plays a full 3-player game over Socket.IO to the end with a TV socket watching, checks every score against the formula, repeats the leak check on what each socket (and the TV) received, removes a player, and has a 9th person join the audience, react and then take a free seat; checks the service worker and manifest, and that a throwing handler answers with an error instead of crashing the server |
+| `e2e/game.spec.js` | desktop host + iPhone-size guest: create, join by link and by code, draw with mouse and touch, check the pixels appear on the other screen, refresh mid-turn as guesser and as drawer, guess, reactions, podium, gallery replay and likes, Save PNG, play again; a phone playing a whole game alone against a bot; and party mode: a 1080p TV follows a 3-player game (blanks only, the drawing, reactions, podium, slideshow) while the host removes a player; a drawn avatar showing on another screen and a 9th person reacting from the audience; and chaos rounds (a mirrored stroke lands on the other side, the bot's one-line turn, the blindfold cover); the family-friendly filter, a refused rude name, a Spanish game guessed without accents, the win badge, and the service worker registering |
 
 ### Stats
 
@@ -201,15 +208,18 @@ Every push to the `main` branch redeploys automatically.
   with an injectable clock (rooms, turns, timers, scoring, hints, reconnects, host migration),
   which is why it's easy to test. `index.js` wires it to HTTP and sockets, serves the QR code
   at `/qr/ABCD.svg` (rendered on the server with the `qrcode` package) and makes share-link
-  rooms (`POST /api/rooms`, `/new`, rate-limited per visitor). `words.js` has 5 packs of
-  90 words each, and `doodles.js` has the 20 doodles bots draw (simple shapes with a hand-drawn
-  wobble).
+  rooms (`POST /api/rooms`, `/new`, rate-limited per visitor). `words.js` has 5 English packs
+  and a Spanish one, 90 words each, `filter.js` is the family-friendly filter, and `doodles.js`
+  has the 20 doodles bots draw (simple shapes with a hand-drawn wobble). A bug in one socket
+  handler or one room's timer is logged and answered with an error, and never takes the other
+  rooms down.
 - **Client** (`public/`): plain HTML, CSS and JavaScript with no build step. `canvas.js` draws on
   a fixed 800×600 canvas scaled to fit, so every screen shows the same picture; strokes are
   streamed to the other players in 40 ms chunks. `app.js` handles screens, chat and the gallery,
   `stickers.js` has the reaction stickers, award icons and chaos twists, `avatar.js` draws and
   edits avatars, and `sound.js` makes the sound effects in the browser (with a mute button that
-  remembers your choice).
+  remembers your choice). `sw.js` is a network-first service worker, so the game can be added
+  to the home screen but a new deploy is never hidden behind an old copy.
 - **TV screen** (`public/tv.html`, `tv.js`, `tv.css`): a separate page for big screens. It joins
   a room as a *watcher*: the server sends it what a guesser sees plus the public chat, and it
   holds no seat, so it can't guess, draw or be the host.
@@ -218,8 +228,8 @@ Every push to the `main` branch redeploys automatically.
   timers. `DD_CHAOS=mirror,blind,...` fixes the order of chaos twists.
 
 ```
-server/   index.js (HTTP + sockets), game.js (game logic, bots), words.js (word packs), doodles.js (bot drawings)
-public/   index.html, app.js, canvas.js, avatar.js, stickers.js, sound.js, ui.js, style.css, fonts/, icons
+server/   index.js (HTTP + sockets), game.js (game logic, bots), words.js (word packs), filter.js, doodles.js (bot drawings)
+public/   index.html, app.js, canvas.js, avatar.js, stickers.js, sound.js, ui.js, style.css, sw.js, fonts/, icons
           tv.html, tv.js, tv.css (the TV screen)
 scripts/  loadtest.js
 test/     node:test unit, leak and integration tests

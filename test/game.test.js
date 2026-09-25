@@ -534,7 +534,7 @@ test('only the current drawer can draw; ops are validated and capped', () => {
   assert.ok(env.sent.some((m) => m.pid === ids[0] && m.event === 'drawLimit'));
 });
 
-test('word packs: 5 packs with 90+ words split into easy/medium/hard, Mixed has them all', () => {
+test('word packs: 5 English packs with 90+ words split into easy/medium/hard, Mixed has them all', () => {
   const ids = ['everyday', 'animals', 'food', 'places', 'actions'];
   let total = 0;
   for (const id of ids) {
@@ -549,7 +549,132 @@ test('word packs: 5 packs with 90+ words split into easy/medium/hard, Mixed has 
   }
   const mixed = PACKS.mixed.easy.length + PACKS.mixed.medium.length + PACKS.mixed.hard.length;
   assert.ok(mixed > 400 && mixed <= total);
-  assert.deepEqual(PACK_IDS, ['everyday', 'animals', 'food', 'places', 'actions', 'mixed', 'custom']);
+  assert.deepEqual(PACK_IDS, ['everyday', 'animals', 'food', 'places', 'actions', 'mixed', 'spanish', 'custom']);
+});
+
+test('Spanish pack: 90 words, accents optional when guessing, and bots draw in Spanish too', () => {
+  const es = PACKS.spanish;
+  for (const d of ['easy', 'medium', 'hard']) {
+    assert.equal(es[d].length, 30);
+    for (const w of es[d]) {
+      assert.match(w, /^\p{Ll}+([ -]\p{Ll}+)*$/u, `bad word "${w}"`);
+      assert.equal(w, w.normalize('NFC'));
+      assert.ok(!PACKS.mixed[d].includes(w) || ['robot'].includes(w), `"${w}" leaked into Mixed`);
+    }
+  }
+  assert.equal(checkGuess('arbol', 'árbol'), 'correct');
+  assert.equal(checkGuess('Pinguino', 'pingüino'), 'correct');
+  assert.equal(checkGuess('muneco de nieve', 'muñeco de nieve'), 'correct');
+  assert.deepEqual(buildMask('piña', new Set()), [null, null, null, null]);
+
+  // A solo game in Spanish against a bot: the bot's words are Spanish, and it still draws them.
+  const env = setup({ players: 1, seed: 3 });
+  const { room, ids } = env;
+  room.addBot(ids[0]);
+  assert.ok(room.updateSettings(ids[0], { pack: 'spanish', rounds: 2 }).ok);
+  room.start(ids[0]);
+  const all = [...es.easy, ...es.medium, ...es.hard];
+  while (room.phase !== 'gameOver') {
+    const t = room.turn;
+    if (room.phase === 'choosing') for (const c of t.choices) assert.ok(all.includes(c.word), c.word);
+    if (room.phase === 'choosing' && t.drawerId === ids[0]) chooseDifficulty(env, 'easy');
+    if (room.phase === 'drawing' && t.drawerId !== ids[0]) {
+      env.run(20000);
+      assert.equal(room.chat(ids[0], t.word.normalize('NFD').replace(/\p{M}/gu, '')).correct, true);
+    }
+    env.run(1000);
+  }
+  const bot = room.gallery.filter((d) => d.drawerBot);
+  assert.equal(bot.length, 2);
+  for (const d of bot) assert.ok(all.includes(d.word) && d.ops.length > 3, d.word);
+});
+
+test('family-friendly filter: whole words, look-alikes, names always, chat when on', () => {
+  const { isRude, censor } = require('../server/filter');
+  assert.equal(censor('what the sh1t'), 'what the ****');
+  assert.equal(censor('FUUUCK this'), '****** this');
+  assert.equal(censor('you @sshole'), 'you *******');
+  assert.equal(censor('qué mierda'), 'qué ******');
+  for (const ok of ['class', 'Scunthorpe', 'passes', 'bass', 'cocky', 'Dickens', 'assess', 'grass is green']) assert.equal(isRude(ok), false, ok);
+
+  const env = setup({ players: 3 });
+  const { room, ids, manager } = env;
+  assert.equal(manager.join(room.code, 'token-rude-1', 'b1tch').error, 'Please pick a friendlier name.');
+  assert.equal(manager.createRoom('token-rude-2', 'Big Shit').error, 'Please pick a friendlier name.');
+  assert.equal(manager.joinAudience(room.code, 'token-rude-3', 'Fuckface').error, 'Please pick a friendlier name.');
+  assert.equal(room.settings.clean, true);
+  room.chat(ids[1], 'this is shit');
+  assert.equal(env.chats(ids[2]).at(-1).text, 'this is ****');
+  assert.equal(env.lastState(ids[1]).settings.clean, true);
+  assert.equal(room.updateSettings(ids[1], { clean: false }).error, 'Only the host can change settings.');
+  room.updateSettings(ids[0], { clean: false });
+  room.chat(ids[1], 'this is shit');
+  assert.equal(env.chats(ids[2]).at(-1).text, 'this is shit');
+
+  // Guesses are checked as typed: a filtered word can still be the answer's neighbour.
+  room.updateSettings(ids[0], { clean: true, pack: 'animals' });
+  startAndChoose(env, 'easy');
+  const t = room.turn;
+  const guesser = ids.find((id) => id !== t.drawerId);
+  assert.equal(room.chat(guesser, t.word).correct, true);
+});
+
+test('wins are tallied across games in the same room (ties count for everyone on top)', () => {
+  const env = setup({ players: 3 });
+  const { room, ids } = env;
+  const play = () => {
+    room.updateSettings(ids[0], { rounds: 2 });
+    room.start(ids[0]);
+    while (room.phase !== 'gameOver') {
+      const t = room.turn;
+      if (room.phase === 'choosing') chooseDifficulty(env, 'easy');
+      if (room.phase === 'drawing' && !room.get(ids[1]).guessed && t.drawerId !== ids[1]) room.chat(ids[1], t.word);
+      env.run(1000);
+    }
+  };
+  play();
+  const wins = () => env.lastState(ids[0]).players.map((p) => p.wins);
+  assert.deepEqual(wins(), [0, 1, 0]);
+  room.playAgain(ids[0]);
+  assert.deepEqual(wins(), [0, 1, 0]);
+  play();
+  assert.deepEqual(wins(), [0, 2, 0]);
+  // A game where nobody scores gives no wins.
+  room.playAgain(ids[0]);
+  room.updateSettings(ids[0], { rounds: 2 });
+  room.start(ids[0]);
+  while (room.phase !== 'gameOver') env.run(1000);
+  assert.deepEqual(wins(), [0, 2, 0]);
+});
+
+test('robustness: a room whose tick throws does not stop the others; rooms are capped', () => {
+  const { RoomManager, MAX_ROOMS } = require('../server/game');
+  const env = setup({ players: 2 });
+  const { manager, room, ids } = env;
+  const other = manager.createRoom('token-other-0', 'Other').room;
+  other.connect(other.players[0].id);
+  const broken = manager.createRoom('token-broken', 'Broken').room;
+  broken.tick = () => {
+    throw new Error('boom');
+  };
+  // Make sure the broken room comes first in the loop.
+  manager.rooms.delete(room.code);
+  manager.rooms.set(room.code, room);
+  const err = console.error;
+  console.error = () => {};
+  try {
+    room.start(ids[0]);
+    const ends = room.endsAt;
+    env.run(ends - env.now + 200);
+    assert.equal(room.phase, 'drawing');
+  } finally {
+    console.error = err;
+  }
+
+  const m = new RoomManager();
+  for (let i = 0; i < MAX_ROOMS; i++) m.rooms.set(`R${i}`, { players: [{}] });
+  assert.match(m.createRoom('token-cap-1', 'Late').error, /very busy/);
+  assert.match(m.createEmptyRoom().error, /Try again/);
 });
 
 test('custom words: at least 10, each 2–30 chars, all count as medium', () => {
@@ -572,11 +697,11 @@ test('custom words: at least 10, each 2–30 chars, all count as medium', () => 
 test('settings are validated: rounds 2–5, draw time 60/80/100', () => {
   const env = setup({ players: 2 });
   const { room, ids } = env;
-  assert.deepEqual(room.settings, { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false });
-  room.updateSettings(ids[0], { rounds: 9, drawTime: 75, pack: 'nope', chaos: 'yes' });
-  assert.deepEqual(room.settings, { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false });
-  room.updateSettings(ids[0], { rounds: 5, drawTime: 100, pack: 'food', chaos: true });
-  assert.deepEqual(room.settings, { rounds: 5, drawTime: 100, pack: 'food', chaos: true });
+  assert.deepEqual(room.settings, { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false, clean: true });
+  room.updateSettings(ids[0], { rounds: 9, drawTime: 75, pack: 'nope', chaos: 'yes', clean: 'no' });
+  assert.deepEqual(room.settings, { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false, clean: true });
+  room.updateSettings(ids[0], { rounds: 5, drawTime: 100, pack: 'spanish', chaos: true, clean: false });
+  assert.deepEqual(room.settings, { rounds: 5, drawTime: 100, pack: 'spanish', chaos: true, clean: false });
 });
 
 test('rooms are garbage-collected after 30 min with no connected players', () => {

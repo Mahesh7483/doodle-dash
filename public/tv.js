@@ -12,7 +12,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
 const MAX_PLAYERS = 8;
-const PACK_NAMES = { everyday: 'Everyday', animals: 'Animals', food: 'Food', places: 'Places', actions: 'Actions', mixed: 'Mixed', custom: 'Custom' };
+const PACK_NAMES = { everyday: 'Everyday', animals: 'Animals', food: 'Food', places: 'Places', actions: 'Actions', mixed: 'Mixed', spanish: 'Español', custom: 'Custom' };
 const MULT_LABEL = { 1: '×1', 1.5: '×1.5', 2: '×2' };
 const PODIUM_MS = 14000; // podium + awards, then the gallery slideshow, then again
 const SLIDE_HOLD_MS = 3500;
@@ -228,13 +228,14 @@ function renderLobby() {
   }
   $('#tvl-count').textContent = `${v.players.length}/${MAX_PLAYERS}`;
   const list = $('#tvl-list');
-  const sig = JSON.stringify(v.players.map((p) => [p.id, p.name, p.connected, p.id === v.hostId]));
+  const sig = JSON.stringify(v.players.map((p) => [p.id, p.name, p.connected, p.id === v.hostId, p.wins]));
   if (list.dataset.sig !== sig) {
     list.dataset.sig = sig;
     const items = v.players.map((p) => {
       const tags = [];
       if (p.id === v.hostId) tags.push('<span class="tag tag-host"><svg class="icon icon-xs"><use href="#i-crown"/></svg>host</span>');
       if (p.bot) tags.push('<span class="tag tag-bot">bot</span>');
+      if (p.wins) tags.push(`<span class="tag tag-wins">🏆 ${p.wins}</span>`);
       return `<li class="tvl-p${p.connected ? '' : ' away'}">${avatar(p)}<span class="tvl-name">${esc(p.name)}</span>${tags.join('')}</li>`;
     });
     const empty = Math.min(MAX_PLAYERS, Math.max(4, v.players.length + 1)) - v.players.length;
