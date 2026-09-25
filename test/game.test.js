@@ -697,11 +697,11 @@ test('custom words: at least 10, each 2–30 chars, all count as medium', () => 
 test('settings are validated: rounds 2–5, draw time 60/80/100', () => {
   const env = setup({ players: 2 });
   const { room, ids } = env;
-  assert.deepEqual(room.settings, { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false, clean: true });
-  room.updateSettings(ids[0], { rounds: 9, drawTime: 75, pack: 'nope', chaos: 'yes', clean: 'no' });
-  assert.deepEqual(room.settings, { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false, clean: true });
-  room.updateSettings(ids[0], { rounds: 5, drawTime: 100, pack: 'spanish', chaos: true, clean: false });
-  assert.deepEqual(room.settings, { rounds: 5, drawTime: 100, pack: 'spanish', chaos: true, clean: false });
+  assert.deepEqual(room.settings, { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false, clean: true, mode: 'classic' });
+  room.updateSettings(ids[0], { rounds: 9, drawTime: 75, pack: 'nope', chaos: 'yes', clean: 'no', mode: 'battle' });
+  assert.deepEqual(room.settings, { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false, clean: true, mode: 'classic' });
+  room.updateSettings(ids[0], { rounds: 5, drawTime: 100, pack: 'spanish', chaos: true, clean: false, mode: 'impostor' });
+  assert.deepEqual(room.settings, { rounds: 5, drawTime: 100, pack: 'spanish', chaos: true, clean: false, mode: 'impostor' });
 });
 
 test('rooms are garbage-collected after 30 min with no connected players', () => {
@@ -1108,7 +1108,7 @@ test('audience: joins a full room, sees what a guesser sees, reacts and likes, c
   sent.length = 0;
   room.connectAudience(fan);
   const view = env.lastState(fan);
-  assert.deepEqual(view.audience, { name: 'Nine', color: res.member.color });
+  assert.deepEqual(view.audience, { name: 'Nine', color: res.member.color, points: 0, hits: 0, pick: null });
   assert.equal(view.players.length, 8, 'not a player');
   assert.equal(env.lastState(ids[0]).crowd, 1, 'players see the audience count');
   assert.ok(sent.some((m) => m.pid === fan && m.event === 'chatHistory'));
@@ -1230,4 +1230,261 @@ test('game over: any player can play again after 30 s; "did you have fun?" votes
   assert.equal(room.playAgain(fan.id).error, 'Only the host can restart.');
   assert.ok(room.playAgain(ids[2]).ok);
   assert.equal(room.phase, 'lobby');
+});
+
+// ---------------------------------------------------------------------------
+// Impostor mode
+
+// The current artist adds one line (any player can be passed; only the artist's line counts).
+function line(room, pid, id = 1, x = 100) {
+  const a = room.draw(pid, { t: 'b', id, c: 5, s: 48, p: [x, 100, x + 50, 150] });
+  const b = room.draw(pid, { t: 'e', id, p: [x + 80, 200] });
+  const c = room.draw(pid, { t: 'x', id });
+  return a && b && c;
+}
+
+function sketchAll(env) {
+  const { room } = env;
+  while (room.phase === 'sketch') {
+    assert.ok(line(room, room.turn.artistId, room.turn.step + 1));
+    env.run(800);
+  }
+}
+
+test('impostor mode: one line each for two laps, the word hidden from the impostor, then a vote', () => {
+  const env = setup({ players: 4 });
+  const { room, ids, manager } = env;
+  const tv = manager.watch(room.code);
+  room.connectWatcher(tv.id);
+  const fan = manager.joinAudience(room.code, 'token-fan-imp', 'Fan').member;
+  room.connectAudience(fan.id);
+  room.updateSettings(ids[0], { mode: 'impostor', rounds: 2 });
+  assert.ok(room.start(ids[0]).ok);
+  assert.equal(room.phase, 'sketch');
+  const t = room.turn;
+  assert.notEqual(t.order[0], t.impostorId, 'the impostor never draws first');
+  assert.equal(t.steps, 8);
+
+  // Everyone but the impostor sees the word; all see the category.
+  for (const id of ids) {
+    const v = env.lastState(id).turn;
+    assert.equal(v.category.length > 0, true);
+    if (id === t.impostorId) {
+      assert.equal(v.word, null);
+      assert.equal(v.role, 'impostor');
+    } else {
+      assert.equal(v.word, t.word);
+      assert.equal(v.role, 'artist');
+    }
+  }
+  assert.equal(env.lastState(tv.id).turn.word, null);
+  assert.equal(env.lastState(fan.id).turn.word, null);
+  assert.equal(env.lastState(fan.id).turn.role, 'watcher');
+
+  // Only the artist draws, one line, in their own ink and a fixed brush; no fill, undo or clear.
+  const artist = t.artistId;
+  const other = ids.find((id) => id !== artist);
+  assert.equal(line(room, other), false);
+  assert.equal(room.draw(artist, { t: 'f', x: 5, y: 5, c: 3 }), false);
+  assert.equal(room.draw(artist, { t: 'c' }), false);
+  assert.equal(room.draw(artist, { t: 'u' }), false);
+  assert.ok(line(room, artist, 7));
+  assert.equal(room.draw(artist, { t: 'b', id: 8, c: 0, s: 4, p: [1, 1] }), false, 'one line only');
+  assert.deepEqual([t.ops[0].c, t.ops[0].s], [t.inks[artist], 10]);
+  const seen = env.sent.filter((m) => m.pid === other && m.event === 'draw').map((m) => m.data.t);
+  assert.deepEqual(seen, ['b', 'e', 'x']);
+  env.run(800);
+  assert.equal(room.turn.step, 1, 'next artist after a short beat');
+
+  // A turn nobody draws in times out; the rest draw, then the vote starts.
+  env.run(20000 + 200);
+  assert.equal(room.turn.step, 2);
+  sketchAll(env);
+  assert.equal(room.phase, 'vote');
+  assert.equal(t.ops.filter((o) => o.t === 's').length, 7);
+
+  // Votes: not for yourself; others see who voted, not whom.
+  assert.equal(room.vote(ids[0], ids[0]).error, "You can't vote for yourself.");
+  assert.equal(room.vote(fan.id, ids[1]).error, 'Only players can vote.');
+  const innocent = ids.filter((id) => id !== t.impostorId);
+  room.vote(innocent[0], t.impostorId);
+  const v = env.lastState(innocent[1]).turn;
+  assert.deepEqual(v.voted, [innocent[0]]);
+  assert.equal(v.myVote, null);
+  assert.equal(v.votes, undefined);
+
+  // Caught (clear majority) -> the impostor's last chance; a wrong guess means the artists win.
+  room.vote(innocent[1], t.impostorId);
+  room.vote(innocent[2], innocent[0]);
+  room.vote(t.impostorId, innocent[1]);
+  assert.equal(room.phase, 'lastChance');
+  assert.equal(env.lastState(t.impostorId).turn.word, null, 'still hidden from the impostor');
+  assert.equal(env.lastState(t.impostorId).turn.caughtId, t.impostorId);
+  const before = room.players.map((p) => p.score);
+  assert.equal(room.chat(t.impostorId, 'definitely not it').correct, false);
+  assert.equal(room.phase, 'unmask');
+  const after = room.players.map((p) => p.score);
+  const pts = Object.fromEntries(room.players.map((p, i) => [p.id, after[i] - before[i]]));
+  assert.equal(pts[t.impostorId], 0);
+  assert.equal(pts[innocent[0]], 200); // spotted them + the artists win
+  assert.equal(pts[innocent[1]], 200);
+  assert.equal(pts[innocent[2]], 100); // voted wrong, but the team won
+  const u = env.lastState(fan.id).turn;
+  assert.equal(u.word, t.word);
+  assert.equal(u.impostorId, t.impostorId);
+  assert.equal(u.outcome, 'caught');
+  assert.equal(room.gallery.at(-1).impostor.id, t.impostorId);
+
+  // Round 2 has a different impostor; after it, game over with impostor awards.
+  env.run(9000 + 200);
+  assert.equal(room.phase, 'sketch');
+  assert.equal(room.round, 2);
+  assert.notEqual(room.turn.impostorId, t.impostorId);
+  const t2 = room.turn;
+  sketchAll(env);
+  // A tie: nobody is caught, so the impostor escapes.
+  const inn2 = ids.filter((id) => id !== t2.impostorId);
+  room.vote(inn2[0], inn2[1]);
+  room.vote(inn2[1], inn2[0]);
+  room.vote(inn2[2], t2.impostorId);
+  room.vote(t2.impostorId, inn2[2]);
+  assert.equal(room.phase, 'unmask');
+  assert.equal(room.turn.outcome, 'escaped');
+  assert.equal(room.turn.points[t2.impostorId], 300);
+  env.run(9000 + 200);
+  assert.equal(room.phase, 'gameOver');
+  const titles = room.awards.map((a) => a.title);
+  assert.ok(titles.includes('Master of disguise') && titles.includes('Sharp eye'), titles.join());
+  assert.equal(room.gallery.length, 2);
+});
+
+test('impostor mode: needs 3 players; a right guess steals the win; nobody can give the word away', () => {
+  const env = setup({ players: 3 });
+  const { room, ids } = env;
+  room.updateSettings(ids[0], { mode: 'impostor', rounds: 2 });
+  room.disconnect(ids[2]);
+  assert.match(room.start(ids[0]).error, /at least 3 players/);
+  const back = env.join('token-player-2', 'Player 2');
+  assert.equal(back.id, ids[2]);
+  assert.ok(room.start(ids[0]).ok);
+  const t = room.turn;
+  const innocent = ids.filter((id) => id !== t.impostorId);
+  // Artists can't type the word (or something containing it); the impostor's chat always goes through.
+  assert.equal(room.chat(innocent[0], `is it ${t.word}?`).error, 'Careful, that gives the word away!');
+  assert.ok(room.chat(innocent[0], 'nice line!').ok);
+  assert.ok(room.chat(t.impostorId, t.word).ok);
+  sketchAll(env);
+  room.vote(innocent[0], t.impostorId);
+  room.vote(innocent[1], t.impostorId);
+  room.vote(t.impostorId, innocent[0]);
+  assert.equal(room.phase, 'lastChance');
+  // Only the impostor's guess counts, and only once.
+  assert.equal(room.impostorGuess(innocent[0], t.word).error, 'Not your guess to make.');
+  assert.equal(room.chat(t.impostorId, t.word.toUpperCase()).correct, true);
+  assert.equal(room.turn.outcome, 'stole');
+  assert.equal(room.turn.points[t.impostorId], 200);
+  assert.equal(room.turn.points[innocent[0]], 100);
+  assert.match(env.chats(innocent[0]).at(-1).text, /guessed the word!/);
+});
+
+test('impostor mode: players leaving (artist, impostor, too few) and bots playing along', () => {
+  const env = setup({ players: 4 });
+  const { room, ids } = env;
+  room.updateSettings(ids[0], { mode: 'impostor', rounds: 3 });
+  room.start(ids[0]);
+  let t = room.turn;
+  // The artist leaves mid-turn: the next player goes.
+  const artist = t.artistId;
+  room.draw(artist, { t: 'b', id: 1, c: 0, s: 10, p: [10, 10] });
+  const step = t.step;
+  if (artist !== ids[0]) {
+    room.leave(artist);
+    assert.equal(room.turn.step, step + 1);
+    assert.ok(t.ops[0] && t.ops[0].open === false, 'their line is closed off');
+  }
+  // The impostor leaves: the round ends and is unmasked.
+  t = room.turn;
+  if (t.impostorId !== ids[0] && room.players.length > 3) {
+    room.leave(t.impostorId);
+    assert.equal(room.phase, 'unmask');
+    assert.equal(room.turn.outcome, 'left');
+  }
+  // Fewer than 3 players: back to the lobby.
+  while (room.players.length > 2) room.leave(room.players.at(-1).id);
+  assert.equal(room.phase, 'lobby');
+  assert.match(room.notice, /needs 3 players/);
+
+  // One person and two bots play a whole game: bots draw lines, vote and guess.
+  for (let seed = 1; seed <= 4; seed++) {
+    const solo = setup({ players: 1, seed });
+    solo.room.addBot(solo.ids[0]);
+    solo.room.addBot(solo.ids[0]);
+    solo.room.updateSettings(solo.ids[0], { mode: 'impostor', rounds: 3, pack: seed % 2 ? 'mixed' : 'spanish' });
+    assert.ok(solo.room.start(solo.ids[0]).ok);
+    const me = solo.ids[0];
+    let guard = 0;
+    while (solo.room.phase !== 'gameOver' && guard++ < 2000) {
+      const rt = solo.room.turn;
+      if (solo.room.phase === 'sketch' && rt.artistId === me && !rt.lineDone) line(solo.room, me, rt.step + 1);
+      if (solo.room.phase === 'vote' && !rt.votes.has(me)) solo.room.vote(me, solo.room.players.find((p) => p.id !== me).id);
+      if (solo.room.phase === 'lastChance' && rt.impostorId === me) solo.room.chat(me, 'banana');
+      solo.run(500);
+    }
+    assert.equal(solo.room.phase, 'gameOver', `seed ${seed}`);
+    assert.equal(solo.room.gallery.length, 3);
+    for (const d of solo.room.gallery) assert.ok(d.ops.length >= 5, `${d.word}: ${d.ops.length} lines`);
+    assert.ok(solo.room.players.some((p) => p.score > 0));
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Audience predictions
+
+test('audience predictions: who guesses first, who the impostor is; points and a crowd top 3', () => {
+  const env = setup({ players: 3 });
+  const { room, ids, manager } = env;
+  const fans = ['A', 'B', 'C'].map((n) => {
+    const m = manager.joinAudience(room.code, `token-fan-${n}-x`, `Fan ${n}`).member;
+    room.connectAudience(m.id);
+    return m;
+  });
+  assert.equal(room.predict(fans[0].id, ids[1]).error, 'Predictions are closed right now.');
+  room.start(ids[0]);
+  const t = room.turn;
+  const guessers = ids.filter((id) => id !== t.drawerId);
+  assert.equal(room.predict(ids[1], ids[2]).error, 'Predictions are for the audience.');
+  assert.equal(room.predict(fans[0].id, t.drawerId).error, 'Pick one of the players.');
+  assert.ok(room.predict(fans[0].id, guessers[0]).ok); // while the word is being picked
+  assert.ok(room.predict(fans[1].id, guessers[1]).ok);
+  assert.ok(room.predict(fans[2].id, guessers[1]).ok);
+  assert.ok(room.predict(fans[2].id, guessers[0]).ok); // changed their mind
+  assert.deepEqual(env.lastState(ids[0]).turn.crowdPicks, { [guessers[0]]: 2, [guessers[1]]: 1 });
+  assert.equal(env.lastState(fans[2].id).audience.pick, guessers[0]);
+  room.chooseWord(t.drawerId, 0);
+  room.chat(guessers[0], t.word);
+  // Locked after the first correct guess.
+  assert.equal(room.predict(fans[1].id, guessers[0]).error, 'Predictions are closed right now.');
+  assert.equal(env.lastState(fans[0].id).audience.points, 100);
+  assert.equal(env.lastState(fans[1].id).audience.points, 0);
+  assert.deepEqual(env.lastState(ids[0]).crowdTop.map((f) => f.points), [100, 100]);
+
+  // Classic picks also close a few seconds into the drawing.
+  while (room.phase !== 'choosing') env.run(1000);
+  room.chooseWord(room.turn.drawerId, 0);
+  env.run(13000);
+  assert.equal(room.predict(fans[1].id, room.players.find((p) => p.id !== room.turn.drawerId).id).error, 'Predictions are closed right now.');
+
+  // Impostor mode: pick the impostor during the drawing or the vote.
+  const env2 = setup({ players: 3 });
+  const fan = env2.manager.joinAudience(env2.room.code, 'token-fan-imp-2', 'Sherlock').member;
+  env2.room.connectAudience(fan.id);
+  env2.room.updateSettings(env2.ids[0], { mode: 'impostor', rounds: 2 });
+  env2.room.start(env2.ids[0]);
+  const t2 = env2.room.turn;
+  assert.ok(env2.room.predict(fan.id, t2.impostorId).ok);
+  sketchAll(env2);
+  for (const id of env2.ids) env2.room.vote(id, env2.ids.find((x) => x !== id));
+  assert.equal(env2.room.phase, 'unmask');
+  assert.equal(env2.lastState(fan.id).audience.points, 150);
+  assert.equal(env2.manager.stats.predictions, 1);
 });

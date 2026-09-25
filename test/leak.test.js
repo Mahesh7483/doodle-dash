@@ -155,3 +155,73 @@ test('guessers only ever get the mask during drawing', () => {
   assert.equal(st.turn.mask.length, Array.from(room.turn.word).length);
   assert.equal(env.lastState(ids[0]).turn.word, room.turn.word);
 });
+
+// Impostor mode: the impostor, the TV and the audience must not learn the word before the unmask
+// (the impostor not even while making their last-chance guess), whatever the artists type.
+function playImpostorAndCheck(seed) {
+  const env = setup({ players: 4, seed });
+  const { room, ids, sent } = env;
+  const rnd = mulberry32(seed * 17 + 3);
+  room.updateSettings(ids[0], { mode: 'impostor', rounds: 3 });
+  if (seed % 2 === 0) room.addBot(ids[0]);
+  if (seed % 3 === 0) room.updateSettings(ids[0], { pack: 'spanish' });
+  const tv = env.manager.watch(room.code);
+  room.connectWatcher(tv.id);
+  const fan = env.manager.joinAudience(room.code, `token-imp-fan-${seed}`, 'Fan').member;
+  room.connectAudience(fan.id);
+
+  const origSend = room.send;
+  room.send = (pid, event, data) => {
+    const t = room.turn;
+    origSend(pid, event, data);
+    const m = sent[sent.length - 1];
+    const hidden = t && t.mode === 'impostor' && room.phase !== 'unmask' && room.phase !== 'gameOver' && room.phase !== 'lobby';
+    const blind = pid === tv.id || pid === fan.id || (t && pid === t.impostorId);
+    m.secret = hidden && blind ? [t.word, t.doodle].filter(Boolean) : [];
+  };
+  room.start(ids[0]);
+  let checked = 0;
+  let cursor = 0;
+  let guard = 0;
+  while (room.phase !== 'gameOver' && guard++ < 3000) {
+    const t = room.turn;
+    const humans = room.players.filter((p) => !p.bot).map((p) => p.id);
+    const who = humans[Math.floor(rnd() * humans.length)];
+    const r = rnd();
+    // Artists trying to give the word away (the impostor can't: they don't know it).
+    if (r < 0.15 && who !== t.impostorId) room.chat(who, `it's a ${t.word}!`);
+    else if (r < 0.25 && who !== t.impostorId) room.chat(who, t.word.slice(0, -1));
+    else if (r < 0.35) room.chat(who, 'the red line is weird');
+    else if (r < 0.4) {
+      room.disconnect(who);
+      room.connect(who);
+    } else if (r < 0.45) room.predict(fan.id, humans[0]);
+    if (room.phase === 'sketch' && humans.includes(t.artistId) && rnd() < 0.7) {
+      room.draw(t.artistId, { t: 'b', id: t.step + 1, c: 0, s: 10, p: [100, 100, 200, 200] });
+      room.draw(t.artistId, { t: 'x', id: t.step + 1 });
+    }
+    if (room.phase === 'vote') for (const id of humans) if (rnd() < 0.5) room.vote(id, room.players[Math.floor(rnd() * room.players.length)].id);
+    if (room.phase === 'lastChance' && humans.includes(t.impostorId) && rnd() < 0.3) room.chat(t.impostorId, 'pizza');
+    env.advance(500 + Math.floor(rnd() * 1500));
+    for (let i = cursor; i < sent.length; i++) {
+      const m = sent[i];
+      const items = m.event === 'chatHistory' ? m.data.messages : [m.data];
+      for (const w of m.secret || []) {
+        for (const it of items) {
+          if (it && it.from === m.pid) continue; // the impostor's own guess echoed back
+          assert.ok(!wordIn(it, w), `seed ${seed}: "${w}" leaked to ${m.pid} in ${m.event}: ${JSON.stringify(it).slice(0, 300)}`);
+          checked++;
+        }
+      }
+    }
+    cursor = sent.length;
+  }
+  assert.equal(room.phase, 'gameOver', `seed ${seed}`);
+  return checked;
+}
+
+test('impostor mode: the impostor, TV and audience never see the word before the unmask', () => {
+  let checked = 0;
+  for (let seed = 1; seed <= 20; seed++) checked += playImpostorAndCheck(seed);
+  assert.ok(checked > 1000, `checked ${checked} payloads`);
+});

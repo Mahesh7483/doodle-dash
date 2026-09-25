@@ -198,10 +198,15 @@
             <span id="settings-lock" class="muted small" hidden><svg class="icon icon-sm"><use href="#i-lock"/></svg> Host picks</span>
           </div>
           <div class="setting">
+            <div class="setting-label">Game mode <span class="new-pill">new</span></div>
+            <div id="set-mode" class="seg" role="radiogroup" aria-label="Game mode"></div>
+            <p id="mode-note" class="setting-note"></p>
+          </div>
+          <div class="setting">
             <div class="setting-label">Rounds</div>
             <div id="set-rounds" class="seg" role="radiogroup" aria-label="Rounds"></div>
           </div>
-          <div class="setting">
+          <div id="setting-time" class="setting">
             <div class="setting-label">Draw time</div>
             <div id="set-time" class="seg" role="radiogroup" aria-label="Draw time"></div>
           </div>
@@ -209,8 +214,8 @@
             <div class="setting-label">Word pack</div>
             <div id="set-pack" class="chips" role="radiogroup" aria-label="Word pack"></div>
           </div>
-          <div class="setting">
-            <div class="setting-label">Chaos rounds <span class="new-pill">new</span></div>
+          <div id="setting-chaos" class="setting">
+            <div class="setting-label">Chaos rounds</div>
             <div id="set-chaos" class="seg" role="radiogroup" aria-label="Chaos rounds"></div>
             <p class="setting-note">Every turn gets a random twist: one line, blindfold, mirror, tiny brush, no take-backs or ink only.</p>
           </div>
@@ -274,6 +279,7 @@
             <canvas id="board" width="800" height="600" aria-label="Drawing canvas"></canvas>
             <div id="blindfold" class="blindfold" hidden></div>
             <div id="chaos-chip" class="chaos-chip" hidden></div>
+            <div id="imp-chip" class="chaos-chip imp-chip" hidden></div>
             <div id="overlay" class="overlay" hidden></div>
             <div id="brush-cursor" class="brush-cursor" hidden></div>
           </div>
@@ -301,6 +307,7 @@
         <div class="chat">
           <ul id="chat-log" class="chat-log" aria-live="polite"></ul>
           <div id="react-tray" class="react-tray" role="group" aria-label="Reactions" hidden></div>
+          <div id="predict-card" class="predict-card" hidden></div>
           <div id="audience-bar" class="audience-bar" role="group" aria-label="Send a reaction" hidden></div>
           <form id="chat-form" class="chat-form" autocomplete="off">
             <input id="chat-input" class="input chat-input" type="text" maxlength="100" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send" placeholder="Type your guess…" aria-label="Chat or guess">
@@ -319,6 +326,7 @@
         <h1 id="winner-title" class="winner-title"></h1>
         <div id="podium" class="podium"></div>
         <ol id="rest-list" class="rest-list"></ol>
+        <div id="crowd-mvps" class="crowd-mvps" hidden></div>
         <div class="podium-actions">
           <button id="to-gallery-btn" class="btn btn-primary btn-lg btn-block" type="button"><svg class="icon"><use href="#i-image"/></svg> Open the gallery</button>
           <div id="fun-card" class="fun-card" hidden>
@@ -410,6 +418,8 @@
         </li>
       </ol>
       <p class="rules-tip"><b>Chaos rounds</b> (host's choice): every turn gets a random twist, shown to everyone. <b>One line</b> (a single stroke), <b>Blindfold</b> (the drawer can't see their drawing), <b>Mirror</b> (it comes out flipped), <b>Tiny brush</b>, <b>No take-backs</b> (no undo, eraser or clearing) or <b>Ink only</b>. Scoring doesn't change.</p>
+      <p class="rules-tip"><b>Impostor mode</b> (3+ players, host's choice): everyone gets the word except one secret <b>impostor</b>, who only sees the category. Take turns adding <b>one line</b> each to a shared drawing (two laps), then vote for who was faking it. Spot the impostor: +100. If the impostor is caught, they get one guess at the word to steal the win. Not caught: +300 for the impostor.</p>
+      <p class="rules-tip">In the <b>audience</b>? Make a 🔮 <b>prediction</b>: who will guess first (+100), or who the impostor is (+150). The best predictors show up on the podium.</p>
       <p class="rules-tip">Tap your face in the lobby to <b>draw your own avatar</b>. It's saved for next time.</p>
       <p class="rules-tip">Playing alone? The host can tap <b>Add a bot</b> in the lobby. Bots draw, guess and chat like players.</p>
       <p class="rules-tip">Playing in one room? Open <code>/tv</code> on a TV or laptop and type the room code: the big screen shows the drawing, the scores and the gallery while everyone plays on their phones.</p>

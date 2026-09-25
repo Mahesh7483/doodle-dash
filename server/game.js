@@ -70,8 +70,24 @@ const PLAY_AGAIN_ANYONE_MS = 30000;
 
 const RUDE_NAME = 'Please pick a friendlier name.';
 
+// Impostor mode: everyone but one secret impostor knows the word. Taking turns, each player adds
+// one line to a shared drawing (two laps), then everyone votes for who was faking it. A caught
+// impostor gets one guess at the word to steal the win.
+const MODES = ['classic', 'impostor'];
+const IMPOSTOR_PHASES = new Set(['sketch', 'vote', 'lastChance', 'unmask']);
+const IMPOSTOR_LAPS = 2;
+const IMPOSTOR_MIN = 3;
+const IMPOSTOR_INKS = [3, 8, 6, 9, 4, 10, 7, 11]; // distinct palette colours, one per seat
+const IMPOSTOR_POINTS = { vote: 100, escaped: 300, stole: 200, caught: 100 };
+const CATEGORY_PACKS = ['everyday', 'animals', 'food', 'places', 'actions'];
+const BOT_SUSPECT = ['hmm 🤔', 'sus 👀', "wasn't me!", 'that one line though…', 'I know who it is'];
+
+// Audience predictions: who guesses first (classic) or who the impostor is.
+const PREDICT_WINDOW_MS = 12000; // classic: picks close this long into the drawing
+const PREDICT_POINTS = { first: 100, impostor: 150 };
+
 function newStats() {
-  return { since: Date.now(), gamesStarted: 0, gamesFinished: 0, chaosGames: 0, players: 0, fun: { 1: 0, 2: 0, 3: 0 } };
+  return { since: Date.now(), gamesStarted: 0, gamesFinished: 0, chaosGames: 0, impostorGames: 0, players: 0, predictions: 0, fun: { 1: 0, 2: 0, 3: 0 } };
 }
 
 const DEFAULT_TIMING = {
@@ -82,10 +98,15 @@ const DEFAULT_TIMING = {
   seatHoldMs: 60000,
   roomIdleMs: 30 * 60 * 1000,
   drawMs: null, // test override for the host's draw time
+  sketchMs: 20000, // impostor mode: time for one line
+  voteMs: 30000,
+  lastChanceMs: 20000,
+  unmaskMs: 9000,
+  lineBeatMs: 700, // pause after a line so everyone sees it land
 };
 
 // clean: the family-friendly chat filter (names are always checked).
-const DEFAULT_SETTINGS = { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false, clean: true };
+const DEFAULT_SETTINGS = { rounds: 3, drawTime: 80, pack: 'mixed', chaos: false, clean: true, mode: 'classic' };
 
 // ---------------------------------------------------------------------------
 // Text helpers
@@ -370,6 +391,7 @@ class Room {
     p.disconnectedAt = this.now();
     if (this.humansConnected().length === 0) this.emptySince = this.now();
     this.checkAllGuessed();
+    if (this.checkAllVoted()) return;
     this.broadcastState();
   }
 
@@ -402,8 +424,13 @@ class Room {
     if (this.hostId === pid) this.migrateHost();
     if (this.humansConnected().length === 0 && this.emptySince == null) this.emptySince = this.now();
 
-    if (this.phase !== 'lobby' && this.phase !== 'gameOver' && this.players.length < 2) {
-      this.backToLobby('Not enough players left — back to the lobby.');
+    const min = this.turn && this.turn.mode === 'impostor' ? IMPOSTOR_MIN : 2;
+    if (this.phase !== 'lobby' && this.phase !== 'gameOver' && this.players.length < min) {
+      this.backToLobby(min === IMPOSTOR_MIN ? 'Impostor mode needs 3 players — back to the lobby.' : 'Not enough players left — back to the lobby.');
+      return;
+    }
+    if (this.turn && this.turn.mode === 'impostor' && IMPOSTOR_PHASES.has(this.phase)) {
+      this.impostorLeft(p);
       return;
     }
     if (this.turn && this.turn.drawerId === pid && (this.phase === 'choosing' || this.phase === 'drawing')) {
@@ -591,6 +618,7 @@ class Room {
     if (patch.pack != null && PACK_IDS.includes(patch.pack)) s.pack = patch.pack;
     if (typeof patch.chaos === 'boolean') s.chaos = patch.chaos;
     if (typeof patch.clean === 'boolean') s.clean = patch.clean;
+    if (MODES.includes(patch.mode)) s.mode = patch.mode;
     let error = null;
     if (patch.customWords != null) {
       this.customWords = parseCustomWords(patch.customWords);
@@ -605,13 +633,17 @@ class Room {
   start(pid) {
     if (pid !== this.hostId) return { error: 'Only the host can start the game.' };
     if (this.phase !== 'lobby') return { error: 'The game has already started.' };
+    const impostor = this.settings.mode === 'impostor';
+    if (impostor && this.connected().length < IMPOSTOR_MIN) return { error: 'Impostor mode needs at least 3 players (add a bot?).' };
     if (this.connected().length < 2) return { error: 'You need at least 2 players to start.' };
     if (this.settings.pack === 'custom' && this.customWords.length < 10) {
       return { error: 'Add at least 10 custom words, or pick another word pack.' };
     }
     this.notice = null;
     this.usage.gamesStarted++;
-    if (this.settings.chaos) this.usage.chaosGames++;
+    if (impostor) this.usage.impostorGames++;
+    else if (this.settings.chaos) this.usage.chaosGames++;
+    for (const a of this.audience.values()) a.points = 0;
     for (const p of this.players) {
       p.score = 0;
       p.guessed = false;
@@ -624,6 +656,11 @@ class Room {
     this.round = 1;
     this.drawOrder = this.players.map((p) => p.id);
     this.turnIndex = -1;
+    if (impostor) {
+      this.impostorCounts = new Map();
+      this.startImpostorRound();
+      return { ok: true };
+    }
     this.system(`Round 1 of ${this.settings.rounds}`, 'round');
     this.nextTurn();
     return { ok: true };
@@ -750,6 +787,8 @@ class Room {
       points: {},
       correct: 0,
       reason: null,
+      crowd: new Map(), // audience id -> predicted player id
+      firstId: null,
     };
     this.phase = 'choosing';
     this.phaseMs = this.timing.chooseMs;
@@ -1061,6 +1100,10 @@ class Room {
     if (close) out.push({ id: 'close', title: 'So close!', ...who(close.st), detail: `${close.v} near miss${close.v === 1 ? '' : 'es'}` });
     const abstract = best((st) => st.stumped);
     if (abstract) out.push({ id: 'abstract', title: 'Abstract artist', ...who(abstract.st), detail: `${abstract.v} drawing${abstract.v === 1 ? '' : 's'} nobody could guess` });
+    const sneaky = best((st) => st.sneaky);
+    if (sneaky) out.push({ id: 'sneaky', title: 'Master of disguise', ...who(sneaky.st), detail: `Won ${sneaky.v} time${sneaky.v === 1 ? '' : 's'} as the impostor` });
+    const sharp = best((st) => st.sharp);
+    if (sharp) out.push({ id: 'sharp', title: 'Sharp eye', ...who(sharp.st), detail: `Spotted the impostor ${sharp.v} time${sharp.v === 1 ? '' : 's'}` });
     return out;
   }
 
@@ -1118,7 +1161,7 @@ class Room {
 
   stat(p) {
     if (!this.stats.has(p.id)) {
-      this.stats.set(p.id, { id: p.id, name: p.name, color: p.color, bot: !!p.bot, fastest: null, first: 0, close: 0, correct: 0, guessedOnMine: 0, stumped: 0 });
+      this.stats.set(p.id, { id: p.id, name: p.name, color: p.color, bot: !!p.bot, fastest: null, first: 0, close: 0, correct: 0, guessedOnMine: 0, stumped: 0, sneaky: 0, sharp: 0 });
     }
     return this.stats.get(p.id);
   }
@@ -1146,6 +1189,16 @@ class Room {
     const msg = { name: p.name, color: p.color, from: p.id, text: this.settings.clean ? censor(text) : text };
     const t = this.turn;
     const inTurn = this.phase === 'choosing' || this.phase === 'drawing';
+
+    if (t && t.mode === 'impostor' && IMPOSTOR_PHASES.has(this.phase)) {
+      // The caught impostor's one guess at the word.
+      if (this.phase === 'lastChance' && pid === t.impostorId) return this.impostorGuess(pid, text);
+      // Nobody may give the word away (the impostor doesn't know it, so their lines always go
+      // through: blocking them would tell them when they'd typed it).
+      if (this.phase !== 'unmask' && pid !== t.impostorId && checkGuess(text, t.word) !== 'wrong') {
+        return { error: 'Careful, that gives the word away!' };
+      }
+    }
 
     if (inTurn && (t.drawerId === pid || p.guessed)) {
       // Private channel: drawer + players who already guessed.
@@ -1187,7 +1240,11 @@ class Room {
     t.points[p.id] = (t.points[p.id] || 0) + pts;
     const st = this.stat(p);
     st.correct++;
-    if (t.correct === 0) st.first++;
+    if (t.correct === 0) {
+      st.first++;
+      t.firstId = p.id;
+      this.settlePredictions(p.id, PREDICT_POINTS.first);
+    }
     const ms = now - t.drawStartedAt;
     if (!st.fastest || ms < st.fastest.ms) st.fastest = { ms, word: t.word };
     t.correct++;
@@ -1229,6 +1286,7 @@ class Room {
   // ---- drawing
 
   draw(pid, op) {
+    if (this.turn && this.turn.mode === 'impostor') return this.drawLine(pid, op);
     if (this.phase !== 'drawing' || !this.turn || this.turn.drawerId !== pid) return false;
     if (!op || typeof op !== 'object') return false;
     const p = this.get(pid);
@@ -1324,10 +1382,469 @@ class Room {
     const p = this.get(pid);
     const fan = this.audience.get(pid);
     if (!this.watchers.has(pid) && !(fan && fan.connected) && (!p || !p.connected)) return;
-    if (this.turn && (this.phase === 'drawing' || this.phase === 'reveal')) {
+    if (this.turn && (this.phase === 'drawing' || this.phase === 'reveal' || IMPOSTOR_PHASES.has(this.phase))) {
       this.send(pid, 'drawSync', { turnId: this.turn.id, ops: this.turn.ops.map(wireOp) });
     }
     if (this.phase === 'gameOver') this.send(pid, 'gallery', this.galleryPayload(pid));
+  }
+
+  // ---- impostor mode
+
+  // The word's category, which everyone sees (the impostor's only clue).
+  categoryOf(word, doodle) {
+    if (this.settings.pack === 'custom') return 'Custom words';
+    const key = doodle || word;
+    for (const id of CATEGORY_PACKS) {
+      const pk = PACKS[id];
+      if (pk.easy.includes(key) || pk.medium.includes(key) || pk.hard.includes(key)) return pk.label;
+    }
+    return this.settings.pack === 'spanish' ? 'Español' : 'Everyday';
+  }
+
+  startImpostorRound() {
+    const now = this.now();
+    const rng = this.rng;
+    this.turnId++;
+    // With bots playing, the word comes from their doodle library so they can draw their lines.
+    let word;
+    let doodle = null;
+    const es = this.settings.pack === 'spanish';
+    if (this.players.some((p) => p.bot)) {
+      const doodles = doodleWords();
+      word = this.pickWord(es ? doodles.map((d) => DOODLE_ES[d]) : doodles, new Set());
+      doodle = es ? doodles.find((d) => DOODLE_ES[d] === word) : word;
+    } else if (this.settings.pack === 'custom') {
+      word = this.pickWord(this.customWords, new Set());
+    } else {
+      const pack = PACKS[this.settings.pack] || PACKS.mixed;
+      word = this.pickWord(pack.easy.concat(pack.medium), new Set());
+    }
+    this.usedWords.add(word);
+
+    // Everyone gets a turn as the impostor before anyone gets a second one.
+    const counts = this.impostorCounts || (this.impostorCounts = new Map());
+    const here = this.players.filter((p) => p.connected);
+    const fewest = Math.min(...here.map((p) => counts.get(p.id) || 0));
+    const pool = here.filter((p) => (counts.get(p.id) || 0) === fewest);
+    const impostor = pool[Math.floor(rng() * pool.length)];
+    counts.set(impostor.id, fewest + 1);
+
+    // Drawing order: shuffled, and the impostor never goes first (they need something to copy).
+    const order = this.players.map((p) => p.id);
+    for (let i = order.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    if (order[0] === impostor.id) [order[0], order[1]] = [order[1], order[0]];
+    const inks = {};
+    this.players.forEach((p, i) => (inks[p.id] = IMPOSTOR_INKS[i % IMPOSTOR_INKS.length]));
+
+    for (const p of this.players) p.guessed = false;
+    this.turn = {
+      id: this.turnId,
+      mode: 'impostor',
+      word,
+      doodle,
+      category: this.categoryOf(word, doodle),
+      impostorId: impostor.id,
+      impostorName: impostor.name,
+      impostorColor: impostor.color,
+      impostorBot: !!impostor.bot,
+      order,
+      inks,
+      step: -1,
+      steps: order.length * IMPOSTOR_LAPS,
+      artistId: null,
+      lineId: null,
+      lineDone: false,
+      doodleNext: 0,
+      botLine: null,
+      votes: new Map(),
+      caughtId: null,
+      guess: null,
+      outcome: null,
+      points: {},
+      crowd: new Map(),
+      ops: [],
+      pointsUsed: 0,
+      opsCount: 0,
+      limitHit: false,
+      startedAt: now,
+      chaos: null,
+    };
+    this.system(`Round ${this.round} of ${this.settings.rounds}: one of you is the impostor!`, 'round');
+    this.nextLine();
+  }
+
+  // The next player's turn to add one line (players who left or are away are skipped).
+  nextLine() {
+    const t = this.turn;
+    const now = this.now();
+    this.closeLine();
+    for (;;) {
+      t.step++;
+      if (t.step >= t.steps) {
+        this.startVote();
+        return;
+      }
+      const artist = this.get(t.order[t.step % t.order.length]);
+      if (artist && artist.connected) {
+        t.artistId = artist.id;
+        t.lineId = null;
+        t.lineDone = false;
+        t.botLine = null;
+        break;
+      }
+    }
+    this.phase = 'sketch';
+    this.phaseMs = this.timing.sketchMs;
+    this.endsAt = now + this.timing.sketchMs;
+    this.broadcastState();
+  }
+
+  // A line still being drawn when time runs out counts as finished.
+  closeLine() {
+    const t = this.turn;
+    if (t.lineId == null) return;
+    const stroke = findOpenStroke(t.ops, t.lineId);
+    if (!stroke) return;
+    stroke.open = false;
+    const out = { t: 'x', id: t.lineId };
+    for (const q of this.players) if (q.connected && !q.bot) this.send(q.id, 'draw', out);
+    this.toWatchers('draw', out);
+  }
+
+  // One line per turn, in your own ink and a fixed brush. Nothing else (no fill, undo or clear).
+  drawLine(pid, op) {
+    const t = this.turn;
+    if (this.phase !== 'sketch' || t.artistId !== pid || t.lineDone || !op || typeof op !== 'object') return false;
+    const p = this.get(pid);
+    if (!p || (!p.bot && this.rateLimited(p, 'drawTimes', DRAW_MSGS_PER_SEC))) return false;
+    let out = null;
+    const id = toInt(op.id);
+    if (op.t === 'b') {
+      const pts = sanitizePoints(op.p);
+      if (t.lineId != null || id == null || !pts || !pts.length) return false;
+      if (!this.spend(pid, pts.length / 2, 1)) return false;
+      const c = t.inks[pid];
+      const size = BRUSH_SIZES[1];
+      t.lineId = id;
+      t.ops.push({ t: 's', id, c, s: size, p: pts, open: true });
+      out = { t: 'b', id, c, s: size, p: pts };
+    } else if (op.t === 'e') {
+      const pts = sanitizePoints(op.p);
+      if (id == null || id !== t.lineId || !pts || !pts.length) return false;
+      const stroke = findOpenStroke(t.ops, id);
+      if (!stroke || !this.spend(pid, pts.length / 2, 0)) return false;
+      for (const v of pts) stroke.p.push(v);
+      out = { t: 'e', id, p: pts };
+    } else if (op.t === 'x') {
+      if (id == null || id !== t.lineId) return false;
+      const stroke = findOpenStroke(t.ops, id);
+      if (!stroke) return false;
+      stroke.open = false;
+      t.lineDone = true;
+      out = { t: 'x', id };
+    } else {
+      return false;
+    }
+    for (const q of this.players) {
+      if (q.connected && !q.bot && q.id !== pid) this.send(q.id, 'draw', out);
+    }
+    this.toWatchers('draw', out);
+    if (op.t === 'x') {
+      // A short beat so everyone sees the line land, then the next player.
+      this.endsAt = Math.min(this.endsAt, this.now() + this.timing.lineBeatMs);
+      this.broadcastState();
+    }
+    return true;
+  }
+
+  startVote() {
+    const t = this.turn;
+    const now = this.now();
+    t.artistId = null;
+    this.phase = 'vote';
+    this.phaseMs = this.timing.voteMs;
+    this.endsAt = now + this.timing.voteMs;
+    this.system('Time to vote: who is the impostor?', 'turn');
+    this.planBotVotes(now);
+    this.broadcastState();
+  }
+
+  vote(pid, targetId) {
+    const t = this.turn;
+    if (!t || t.mode !== 'impostor' || this.phase !== 'vote') return { error: 'Voting is closed.' };
+    const voter = this.get(pid);
+    if (!voter) return { error: 'Only players can vote.' };
+    const target = this.get(targetId);
+    if (!target) return { error: 'Pick a player.' };
+    if (target.id === pid) return { error: "You can't vote for yourself." };
+    t.votes.set(pid, target.id);
+    if (!this.checkAllVoted()) this.broadcastState();
+    return { ok: true };
+  }
+
+  // Everyone connected has voted: count them now instead of waiting for the timer.
+  checkAllVoted() {
+    const t = this.turn;
+    if (!t || t.mode !== 'impostor' || this.phase !== 'vote') return false;
+    const voters = this.players.filter((p) => p.connected);
+    if (!voters.length || !voters.every((p) => t.votes.has(p.id))) return false;
+    this.countVotes();
+    return true;
+  }
+
+  // The single most-voted player is caught; a tie means nobody is, and the impostor escapes.
+  countVotes() {
+    const t = this.turn;
+    const tally = new Map();
+    for (const [voter, target] of t.votes) {
+      if (this.get(voter) && this.get(target)) tally.set(target, (tally.get(target) || 0) + 1);
+    }
+    const top = Math.max(0, ...tally.values());
+    const leaders = [...tally].filter(([, n]) => n === top).map(([id]) => id);
+    t.caughtId = top > 0 && leaders.length === 1 ? leaders[0] : null;
+    if (t.caughtId && t.caughtId === t.impostorId) {
+      const now = this.now();
+      this.phase = 'lastChance';
+      this.phaseMs = this.timing.lastChanceMs;
+      this.endsAt = now + this.timing.lastChanceMs;
+      this.system(`${t.impostorName} was caught! One guess at the word to steal the win…`, 'turn');
+      this.planBotGuess(now);
+      this.broadcastState();
+    } else {
+      this.endImpostorRound('escaped');
+    }
+  }
+
+  impostorGuess(pid, text) {
+    const t = this.turn;
+    if (this.phase !== 'lastChance' || pid !== t.impostorId || t.guess != null) return { error: 'Not your guess to make.' };
+    t.guess = this.settings.clean ? censor(text) : text;
+    const right = checkGuess(text, t.word) === 'correct';
+    this.system(`${t.impostorName} guesses “${t.guess}”…`, 'turn');
+    this.endImpostorRound(right ? 'stole' : 'caught');
+    return { ok: true, correct: right };
+  }
+
+  // The impostor left mid-round: nobody to find, so the round ends here.
+  impostorLeft(p) {
+    const t = this.turn;
+    t.votes.delete(p.id);
+    for (const [voter, target] of t.votes) if (target === p.id) t.votes.delete(voter);
+    if (this.phase === 'unmask') return this.broadcastState();
+    if (p.id === t.impostorId) return this.endImpostorRound('left');
+    if (this.phase === 'sketch' && t.artistId === p.id) return this.nextLine();
+    if (this.phase === 'vote' && this.checkAllVoted()) return;
+    this.broadcastState();
+  }
+
+  endImpostorRound(outcome) {
+    const t = this.turn;
+    const now = this.now();
+    t.outcome = outcome;
+    this.closeLine();
+    const add = (p, pts) => {
+      if (!p || !pts) return;
+      p.score += pts;
+      t.points[p.id] = (t.points[p.id] || 0) + pts;
+    };
+    const impostor = this.get(t.impostorId);
+    if (outcome !== 'left') {
+      for (const [voter, target] of t.votes) {
+        const p = this.get(voter);
+        if (p && voter !== t.impostorId && target === t.impostorId) {
+          add(p, IMPOSTOR_POINTS.vote);
+          this.stat(p).sharp++;
+        }
+      }
+      if (outcome === 'escaped' || outcome === 'stole') {
+        add(impostor, IMPOSTOR_POINTS[outcome]);
+        if (impostor) this.stat(impostor).sneaky++;
+      } else {
+        for (const p of this.players) if (p.id !== t.impostorId) add(p, IMPOSTOR_POINTS.caught);
+      }
+      this.settlePredictions(t.impostorId, PREDICT_POINTS.impostor);
+    }
+    const ops = t.ops.filter((o) => o.t === 's').map((o) => wireOp({ ...o, open: false }));
+    if (ops.length) {
+      this.likes.push(new Set());
+      this.gallery.push({
+        word: t.word,
+        difficulty: 'medium',
+        round: this.round,
+        drawerId: null,
+        drawerName: 'Everyone',
+        drawerColor: '#8a8697',
+        drawerBot: false,
+        guessedCount: 0,
+        chaos: null,
+        impostor: { id: t.impostorId, name: t.impostorName, color: t.impostorColor, bot: t.impostorBot },
+        outcome,
+        ops,
+      });
+    }
+    this.phase = 'unmask';
+    this.phaseMs = this.timing.unmaskMs;
+    this.endsAt = now + this.timing.unmaskMs;
+    this.broadcastState();
+    const line = {
+      escaped: `${t.impostorName} was the impostor and got away with it!`,
+      stole: `${t.impostorName} was the impostor and guessed the word!`,
+      caught: `Caught! ${t.impostorName} was the impostor.`,
+      left: `${t.impostorName} was the impostor, and left.`,
+    }[outcome];
+    this.system(`${line} The word was “${t.word}”.`, 'reveal');
+  }
+
+  tickImpostor(now) {
+    const t = this.turn;
+    if (this.phase === 'sketch') {
+      const artist = this.get(t.artistId);
+      // An artist who went away mid-turn is skipped after a moment.
+      const away = artist && !artist.connected && now - artist.disconnectedAt >= 3000;
+      if (!artist || away || now >= this.endsAt) {
+        this.nextLine();
+        return;
+      }
+      if (artist.bot) this.botLineStep(artist, now);
+    } else if (this.phase === 'vote') {
+      for (const bot of this.players) {
+        if (this.phase !== 'vote') return;
+        if (bot.bot && bot.brain && bot.brain.turnId === t.id && !t.votes.has(bot.id) && now >= bot.brain.voteAt) {
+          if (bot.brain.say) this.chat(bot.id, bot.brain.say);
+          this.vote(bot.id, bot.brain.voteFor);
+        }
+      }
+      if (this.phase === 'vote' && now >= this.endsAt) this.countVotes();
+    } else if (this.phase === 'lastChance') {
+      const imp = this.get(t.impostorId);
+      if (imp && imp.bot && t.botGuess && now >= t.botGuess.at) this.impostorGuess(imp.id, t.botGuess.text);
+      else if (now >= this.endsAt) this.endImpostorRound('caught');
+    } else if (this.phase === 'unmask' && now >= this.endsAt) {
+      if (this.round >= this.settings.rounds) {
+        this.gameOver();
+        return;
+      }
+      this.round++;
+      this.startImpostorRound();
+    }
+  }
+
+  // ---- impostor mode: bots
+
+  // A bot draws one stroke of the real doodle, or, as the impostor, a stroke from another one.
+  botLineStep(bot, now) {
+    const t = this.turn;
+    if (t.lineDone) return;
+    if (!t.botLine) {
+      const rng = this.rng;
+      let pts;
+      if (bot.id !== t.impostorId && LIBRARY[t.doodle]) {
+        const strokes = doodleOps(t.doodle).filter((o) => o.t === 's');
+        pts = strokes[t.doodleNext++ % strokes.length].p;
+      } else {
+        const others = doodleWords().filter((w) => w !== t.doodle);
+        const strokes = doodleOps(others[Math.floor(rng() * others.length)]).filter((o) => o.t === 's');
+        const dx = Math.round((rng() - 0.5) * 300);
+        const dy = Math.round((rng() - 0.5) * 200);
+        pts = strokes[Math.floor(rng() * strokes.length)].p.map((v, i) => Math.max(0, Math.min((i % 2 ? CANVAS_H : CANVAS_W) - 1, v + (i % 2 ? dy : dx))));
+      }
+      // At most 150 points, streamed like a finger drawing.
+      const n = pts.length / 2;
+      const every = Math.max(1, Math.ceil(n / 150));
+      const p = [];
+      for (let i = 0; i < n; i += every) p.push(pts[i * 2], pts[i * 2 + 1]);
+      t.botLine = { at: now + 900 + this.rng() * 1400, p, sent: 0, id: t.step + 1 };
+    }
+    const bl = t.botLine;
+    if (now < bl.at) return;
+    const chunk = bl.p.slice(bl.sent, bl.sent + 24);
+    if (chunk.length) {
+      this.drawLine(bot.id, bl.sent === 0 ? { t: 'b', id: bl.id, c: 0, s: BRUSH_SIZES[1], p: chunk } : { t: 'e', id: bl.id, p: chunk });
+      bl.sent += chunk.length;
+    } else {
+      this.drawLine(bot.id, { t: 'x', id: bl.id });
+    }
+  }
+
+  planBotVotes(now) {
+    const t = this.turn;
+    const rng = this.rng;
+    let chatty = rng() < 0.4;
+    for (const bot of this.players) {
+      if (!bot.bot) continue;
+      const others = this.players.filter((p) => p.id !== bot.id);
+      // Bots aren't mind readers: a fair chance of spotting the impostor, otherwise a hunch.
+      const spot = bot.id !== t.impostorId && rng() < 0.45;
+      const voteFor = spot ? t.impostorId : others[Math.floor(rng() * others.length)].id;
+      const say = chatty ? BOT_SUSPECT[Math.floor(rng() * BOT_SUSPECT.length)] : null;
+      chatty = false;
+      bot.brain = { turnId: t.id, voteAt: now + 1500 + rng() * 6000, voteFor, say };
+    }
+  }
+
+  planBotGuess(now) {
+    const t = this.turn;
+    const imp = this.get(t.impostorId);
+    if (!imp || !imp.bot) return;
+    const es = this.settings.pack === 'spanish';
+    const others = doodleWords().filter((w) => w !== t.doodle).map((w) => (es ? DOODLE_ES[w] : w));
+    const text = this.rng() < 0.4 ? t.word : others[Math.floor(this.rng() * others.length)];
+    t.botGuess = { at: now + 2500 + this.rng() * 2500, text };
+  }
+
+  // ---- audience predictions
+
+  predictOpen() {
+    const t = this.turn;
+    if (!t) return false;
+    if (t.mode === 'impostor') return this.phase === 'sketch' || this.phase === 'vote';
+    if (this.phase === 'choosing') return true;
+    return this.phase === 'drawing' && t.correct === 0 && this.now() - t.drawStartedAt < PREDICT_WINDOW_MS;
+  }
+
+  // Someone in the audience predicts who guesses first, or who the impostor is.
+  predict(pid, targetId) {
+    const fan = this.audience.get(pid);
+    if (!fan) return { error: 'Predictions are for the audience.' };
+    const t = this.turn;
+    if (!this.predictOpen()) return { error: 'Predictions are closed right now.' };
+    const target = this.get(targetId);
+    if (!target || (t.mode !== 'impostor' && target.id === t.drawerId)) return { error: 'Pick one of the players.' };
+    if (this.rateLimited(fan, 'predictTimes', 5, 2000)) return { error: 'Slow down!' };
+    if (!t.crowd.has(pid)) this.usage.predictions++;
+    t.crowd.set(pid, target.id);
+    this.broadcastState();
+    return { ok: true };
+  }
+
+  settlePredictions(winnerId, pts) {
+    const t = this.turn;
+    for (const [fanId, target] of t.crowd) {
+      const fan = this.audience.get(fanId);
+      if (fan && target === winnerId) {
+        fan.points = (fan.points || 0) + pts;
+        fan.hits = (fan.hits || 0) + 1;
+      }
+    }
+  }
+
+  crowdPicks() {
+    const out = {};
+    const t = this.turn;
+    if (!t || !t.crowd) return out;
+    for (const [fanId, target] of t.crowd) if (this.audience.has(fanId)) out[target] = (out[target] || 0) + 1;
+    return out;
+  }
+
+  crowdTop() {
+    return [...this.audience.values()]
+      .filter((a) => a.points > 0)
+      .sort((a, b) => b.points - a.points)
+      .slice(0, 3)
+      .map((a) => ({ id: a.id, name: a.name, color: a.color, points: a.points }));
   }
 
   // ---- views
@@ -1351,6 +1868,7 @@ class Room {
         pack: this.settings.pack,
         chaos: this.settings.chaos,
         clean: this.settings.clean,
+        mode: this.settings.mode,
         customCount: this.customWords.length,
       },
       players: this.players.map((p) => ({
@@ -1374,7 +1892,11 @@ class Room {
     };
     if (this.watchers.has(pid)) view.watching = true;
     const fan = this.audience.get(pid);
-    if (fan) view.audience = { name: fan.name, color: fan.color };
+    if (fan) {
+      const pick = t && t.crowd ? t.crowd.get(pid) || null : null;
+      view.audience = { name: fan.name, color: fan.color, points: fan.points || 0, hits: fan.hits || 0, pick };
+    }
+    if (this.audience.size) view.crowdTop = this.crowdTop();
     if (this.phase === 'gameOver') {
       view.awards = this.awards || [];
       view.gameOverAt = this.gameOverAt;
@@ -1383,7 +1905,9 @@ class Room {
     }
     // Only the host gets the custom word list back, and only while in the lobby.
     if (pid === this.hostId && this.phase === 'lobby') view.customWords = this.customWords.join(', ');
-    if (t && this.phase !== 'lobby' && this.phase !== 'gameOver') {
+    if (t && t.mode === 'impostor' && IMPOSTOR_PHASES.has(this.phase)) {
+      view.turn = this.impostorView(pid, me);
+    } else if (t && this.phase !== 'lobby' && this.phase !== 'gameOver') {
       view.turn = {
         id: t.id,
         drawerId: t.drawerId,
@@ -1394,6 +1918,9 @@ class Room {
         word: knowsWord ? t.word : null,
         mask: t.word && !knowsWord ? buildMask(t.word, t.revealed) : null,
         choices: isDrawer && this.phase === 'choosing' ? t.choices : null,
+        firstId: t.firstId || null,
+        crowdPicks: this.crowdPicks(),
+        predictOpen: this.predictOpen(),
       };
       if (revealed) {
         view.turn.reason = t.reason;
@@ -1402,6 +1929,42 @@ class Room {
       }
     }
     return view;
+  }
+
+  // Impostor mode: players who aren't the impostor see the word; the impostor, TV screens and the
+  // audience only see the category until the unmask.
+  impostorView(pid, me) {
+    const t = this.turn;
+    const unmasked = this.phase === 'unmask';
+    const isImpostor = t.impostorId === pid;
+    const v = {
+      id: t.id,
+      mode: 'impostor',
+      category: t.category,
+      word: unmasked || (me && !isImpostor) ? t.word : null,
+      role: isImpostor ? 'impostor' : me ? 'artist' : 'watcher',
+      artistId: t.artistId,
+      step: t.step,
+      steps: t.steps,
+      order: t.order,
+      inks: t.inks,
+      lineDone: t.lineDone,
+      voted: [...t.votes.keys()],
+      myVote: t.votes.get(pid) || null,
+      caughtId: this.phase === 'lastChance' || unmasked ? t.caughtId : null,
+      crowdPicks: this.crowdPicks(),
+      predictOpen: this.predictOpen(),
+    };
+    if (unmasked) {
+      v.impostorId = t.impostorId;
+      v.impostorName = t.impostorName;
+      v.votes = Object.fromEntries(t.votes);
+      v.guess = t.guess;
+      v.outcome = t.outcome;
+      v.points = t.points;
+      v.last = this.round >= this.settings.rounds;
+    }
+    return v;
   }
 
   peekNextDrawerName() {
@@ -1439,6 +2002,11 @@ class Room {
     const host = this.get(this.hostId);
     if (host && !host.connected && now - host.disconnectedAt >= T.hostGraceMs) {
       if (this.migrateHost()) this.broadcastState();
+    }
+
+    if (this.turn && this.turn.mode === 'impostor' && IMPOSTOR_PHASES.has(this.phase)) {
+      this.tickImpostor(now);
+      return;
     }
 
     if (this.phase === 'choosing' || this.phase === 'drawing') {
@@ -1722,6 +2290,8 @@ module.exports = {
   MAX_EMPTY_ROOMS,
   MAX_ROOMS,
   PLAY_AGAIN_ANYONE_MS,
+  IMPOSTOR_POINTS,
+  PREDICT_POINTS,
   AVATAR_SIZES,
   sanitizeAvatar,
   CHAOS,

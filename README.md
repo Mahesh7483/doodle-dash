@@ -17,6 +17,12 @@ creating the room to the gallery.
 
 **What makes it different**
 
+- **Impostor mode: drawing meets finding the spy.** Everyone gets the word except one secret
+  **impostor**, who only sees the category. Taking turns, each player adds **one line** to a
+  shared drawing, each in their own colour. Then everyone votes for whose lines didn't fit.
+  Catch the impostor and they still get one guess at the word to steal the win. Bots play it
+  too (the bot impostor fakes its lines), and the TV shows it all without ever giving the word
+  away.
 - **Chaos rounds.** Turn them on and every turn gets a random twist that everyone sees:
   **One line** (the whole drawing is a single stroke), **Blindfold** (the drawer can't see
   their own canvas), **Mirror** (it all comes out flipped), **Tiny brush**, **No take-backs**
@@ -44,7 +50,9 @@ creating the room to the gallery.
   their own phone. The TV sees exactly what a guesser sees, so it never shows the word early.
 - **Room for a crowd.** Rooms seat 8 players. Anyone else who scans the QR code joins the
   **audience** (up to 50): they watch live, send reactions and vote for the best drawing, and
-  can take a seat when one frees up. Great for classrooms and parties.
+  can take a seat when one frees up. They also make 🔮 **predictions** (who will guess first,
+  or who the impostor is) for crowd points, and the best predictor gets an award on the TV
+  podium. Great for classrooms and parties.
 - **Try it alone in seconds.** Tap **Add a bot** in the lobby. Bots draw hand-drawn doodles
   stroke by stroke, guess your drawing once there's something on the canvas, and chat a little.
 - **Live reactions.** Tap a sticker (😂 🔥 ❤️ 😮 🤔 ⭐, drawn in the game's own style) and it
@@ -82,7 +90,8 @@ creating the room to the gallery.
    word pack (Everyday, Animals, Food, Places, Actions, Mixed, Español, or Custom words). Start needs at
    least 2 players. Playing alone? The host can add bots, and they draw and guess too. The
    host can also remove a player who joined by mistake (they can't rejoin that room), and turn
-   on **Chaos rounds** (below) or turn off the **family-friendly chat** filter. Tap your face
+   on **Chaos rounds** (below), switch to **Impostor mode** (below) or turn off the
+   **family-friendly chat** filter. Tap your face
    in the list to **draw your own avatar**. After each game, the winner gets a 🏆 in the list.
    If the room is full, newcomers can join the **audience**: they watch, react and vote, but
    don't play.
@@ -101,6 +110,12 @@ creating the room to the gallery.
      the word is picked and on the canvas while drawing. One line, Blindfold, Mirror, Tiny
      brush, No take-backs (no undo, eraser or clearing) or Ink only. Never the same twice in a
      row. Scoring doesn't change.
+   - **Impostor mode** (3+ players): instead of one drawer, everyone adds one line per turn
+     (20 s each, two laps) to one drawing. Everyone sees the word except the impostor, who
+     only sees the category, and nobody can type the word in chat. Then 30 s to vote (tap a
+     player). A single most-voted player is caught; a tie means nobody is. Spotting the
+     impostor: +100 each. Impostor not caught: +300 for them. Caught: they get one guess at
+     the word (+200 if right), otherwise every artist gets +100. A new impostor each round.
 4. **Scoring.**
    - Guesser: `round((100 + 200 × timeLeft / drawTime) × mult)`, so 100 to 300 base points,
      and faster guesses score more.
@@ -144,11 +159,11 @@ The first time you run the browser tests on your own machine you may need
 
 | Suite | What it checks |
 | --- | --- |
-| `test/game.test.js` | scoring and multipliers, hint schedule and the half-letters cap, guess matching and "so close", turns and rounds, early end when all guess, reconnect within 60 s, host migration, drawer disconnect, joining mid-game, room full, word packs, custom words, reactions, awards, likes, TV screens (guesser view, public chat only, no seat), removing a player, drawn avatars (validation, lobby only), chaos rounds (every rule enforced, bots following each twist), the audience (view, reactions, votes, seats, limits), the Spanish pack (accents optional, bots drawing Spanish words), the family-friendly filter, the win tally, and that one broken room can't stop the others |
-| `test/leak.test.js` | plays 25 randomized games (half with a bot, a third with chaos rounds, a quarter in Spanish, all with a TV and an audience member watching) and checks that no payload sent to a guesser, the TV or the audience, including chat restored after a refresh, contains the word (or the drawer's choices) before they guess it or the reveal |
+| `test/game.test.js` | scoring and multipliers, hint schedule and the half-letters cap, guess matching and "so close", turns and rounds, early end when all guess, reconnect within 60 s, host migration, drawer disconnect, joining mid-game, room full, word packs, custom words, reactions, awards, likes, TV screens (guesser view, public chat only, no seat), removing a player, drawn avatars (validation, lobby only), chaos rounds (every rule enforced, bots following each twist), the audience (view, reactions, votes, seats, limits), the Spanish pack (accents optional, bots drawing Spanish words), the family-friendly filter, the win tally, that one broken room can't stop the others, Impostor mode (one line per turn in your own ink, the impostor never first and never shown the word, votes, ties, the last-chance guess, scoring, players leaving, bots playing whole games) and audience predictions (who guesses first, who the impostor is, locking, points, crowd top 3) |
+| `test/leak.test.js` | plays 25 randomized classic games (half with a bot, a third with chaos rounds, a quarter in Spanish, all with a TV and an audience member watching) and checks that no payload sent to a guesser, the TV or the audience, including chat restored after a refresh, contains the word (or the drawer's choices) before they guess it or the reveal; then 20 randomized Impostor games, checking that the impostor, the TV and the audience never get the word before the unmask |
 | `test/bots.test.js` | adding and removing bots, bots never hosting, a solo game against a bot played to the end (the bot draws its whole doodle and guesses only after there's ink), bots never leaking the word, every doodle is valid drawing data |
 | `test/integration.test.js` | starts the real server with short timers, plays a full 3-player game over Socket.IO to the end with a TV socket watching, checks every score against the formula, repeats the leak check on what each socket (and the TV) received, removes a player, and has a 9th person join the audience, react and then take a free seat; checks the service worker and manifest, and that a throwing handler answers with an error instead of crashing the server |
-| `e2e/game.spec.js` | desktop host + iPhone-size guest: create, join by link and by code, draw with mouse and touch, check the pixels appear on the other screen, refresh mid-turn as guesser and as drawer, guess, reactions, podium, gallery replay and likes, Save PNG, play again; a phone playing a whole game alone against a bot; and party mode: a 1080p TV follows a 3-player game (blanks only, the drawing, reactions, podium, slideshow) while the host removes a player; a drawn avatar showing on another screen and a 9th person reacting from the audience; and chaos rounds (a mirrored stroke lands on the other side, the bot's one-line turn, the blindfold cover); the family-friendly filter, a refused rude name, a Spanish game guessed without accents, the win badge, and the service worker registering |
+| `e2e/game.spec.js` | desktop host + iPhone-size guest: create, join by link and by code, draw with mouse and touch, check the pixels appear on the other screen, refresh mid-turn as guesser and as drawer, guess, reactions, podium, gallery replay and likes, Save PNG, play again; a phone playing a whole game alone against a bot; and party mode: a 1080p TV follows a 3-player game (blanks only, the drawing, reactions, podium, slideshow) while the host removes a player; a drawn avatar showing on another screen and a 9th person reacting from the audience; and chaos rounds (a mirrored stroke lands on the other side, the bot's one-line turn, the blindfold cover); the family-friendly filter, a refused rude name, a Spanish game guessed without accents, the win badge, and the service worker registering; an audience prediction; and a whole Impostor game (a desktop and a phone plus a bot: roles, one line each by mouse and touch, voting from the player list, the unmask, and the gallery) |
 
 ### Stats
 

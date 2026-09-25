@@ -20,6 +20,10 @@ function timingFromEnv(env = process.env) {
     DD_DRAWER_GRACE_MS: 'drawerGraceMs',
     DD_HOST_GRACE_MS: 'hostGraceMs',
     DD_SEAT_HOLD_MS: 'seatHoldMs',
+    DD_SKETCH_MS: 'sketchMs',
+    DD_VOTE_MS: 'voteMs',
+    DD_LAST_CHANCE_MS: 'lastChanceMs',
+    DD_UNMASK_MS: 'unmaskMs',
   };
   for (const [key, field] of Object.entries(map)) {
     const n = Number(env[key]);
@@ -107,6 +111,8 @@ function createServer(options = {}) {
       gamesStarted: s.gamesStarted,
       gamesFinished: s.gamesFinished,
       chaosGames: s.chaosGames,
+      impostorGames: s.impostorGames,
+      audiencePredictions: s.predictions,
       playersInFinishedGames: s.players,
       fun: { votes, loved: s.fun[3], liked: s.fun[2], meh: s.fun[1], lovedOrLikedPercent: votes ? Math.round(((s.fun[3] + s.fun[2]) / votes) * 100) : null },
     });
@@ -391,6 +397,18 @@ function createServer(options = {}) {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       reply(ack, cur.room.like(cur.pid, index, liked !== false));
+    });
+
+    on('vote', (targetId, ack) => {
+      const cur = current();
+      if (!cur) return reply(ack, { error: 'Not in a room.' });
+      reply(ack, cur.room.vote(cur.pid, String(targetId)));
+    });
+
+    on('predict', (targetId, ack) => {
+      const cur = current();
+      if (!cur) return reply(ack, { error: 'Not in a room.' });
+      reply(ack, cur.room.predict(cur.pid, String(targetId)));
     });
 
     on('feedback', (score, ack) => {

@@ -286,6 +286,8 @@ export class DrawInput {
     this.color = 0;
     this.sizeIndex = 1;
     this.chaos = null; // the turn's chaos twist, if any (the server enforces the same rules)
+    this.oneStroke = false; // impostor mode: one line per turn
+    this.strokeUsed = false;
     this.active = null;
     this.pending = [];
     this.flushTimer = null;
@@ -320,6 +322,7 @@ export class DrawInput {
 
   // One line: once there's a stroke, that's it.
   get lineUsed() {
+    if (this.oneStroke) return this.strokeUsed;
     return this.chaos === 'oneline' && this.board.ops.some((o) => o.t === 's');
   }
 
@@ -412,6 +415,7 @@ export class DrawInput {
     clearInterval(this.flushTimer);
     this.flushTimer = null;
     this.active = null;
+    if (this.oneStroke) this.strokeUsed = true;
     if (this.hooks.onStrokeEnd) this.hooks.onStrokeEnd();
   }
 

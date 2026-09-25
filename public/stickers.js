@@ -48,8 +48,17 @@ export const STICKER_IDS = Object.keys(STICKERS);
 // Smiley for the "send a reaction" button, drawn like the other icons.
 export const REACT_ICON = `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5q3.5 3.5 7 0"/><circle cx="9" cy="10" r=".6" fill="currentColor"/><circle cx="15" cy="10" r=".6" fill="currentColor"/></svg>`;
 
+// Impostor mode: a masked face (the impostor) for the role card, chips and the TV.
+export const IMPOSTOR_ICON = s(`<circle cx="24" cy="24" r="19" fill="#ffd23f" stroke="${INK}" stroke-width="3"/>
+  <path d="M5.5 21c5-4.5 12-5 18.5-1.5 6.5-3.5 13.5-3 18.5 1.5-.5 6-4.5 10-10 10-4 0-6.5-2.5-8.5-5-2 2.5-4.5 5-8.5 5-5.5 0-9.5-4-10-10z" fill="${INK}"/>
+  <ellipse cx="15" cy="23.5" rx="3.6" ry="2.4" fill="#fff"/><ellipse cx="33" cy="23.5" rx="3.6" ry="2.4" fill="#fff"/>
+  <path d="M17 36q7 4 14 0" fill="none" stroke="${INK}" stroke-width="3" stroke-linecap="round"/>`);
+
 // Award icons for the podium.
 export const AWARD_ICONS = {
+  sneaky: IMPOSTOR_ICON,
+  sharp: s(`<circle cx="20" cy="20" r="13" fill="#bfe8ff" stroke="${INK}" stroke-width="3.5"/><path d="M29.5 29.5L42 42" stroke="${INK}" stroke-width="6" stroke-linecap="round"/>
+    <path d="M13.5 16a8 8 0 016-5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round"/>`),
   fastest: s(`<path d="M28 3.5L9 27.5h13.5l-4.5 17 21.5-26H26z" fill="#ffd23f" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>`),
   artist: s(`<path d="M24 5C12.4 5 4 13.2 4 23.5 4 33 11.5 42.5 22 42.5c3 0 4.6-1.7 4.6-3.8 0-2.6-2.4-3.4-2.4-5.9 0-2.4 2-3.9 4.4-3.9H34c6 0 10-4.3 10-9.8C44 11 35.2 5 24 5z" fill="#fff6e5" stroke="${INK}" stroke-width="3" stroke-linejoin="round"/>
     <circle cx="13.5" cy="22" r="3.6" fill="#e8384f" stroke="${INK}" stroke-width="2"/><circle cx="18.5" cy="13" r="3.6" fill="#ffd23f" stroke="${INK}" stroke-width="2"/>

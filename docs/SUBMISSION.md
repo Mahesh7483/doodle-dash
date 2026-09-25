@@ -33,6 +33,11 @@ letters revealed as time runs down. Near misses get a private "So close!", and p
 already guessed chat in a private channel so nobody can spoil the answer. Faster guesses score
 more.
 
+There's also Impostor mode: everyone knows the word except one secret impostor. Players take
+turns adding one line each to a shared drawing, then vote on whose lines didn't fit, and a
+caught impostor gets one guess at the word to steal the win. The audience makes predictions
+(who guesses first, who the impostor is) for crowd points.
+
 Everyone draws their own avatar in the lobby, and it follows them to the scoreboard, the TV and
 the gallery. Anyone can tap a sticker reaction that floats over the drawing on every screen. At the end, a
 podium crowns the winner and hands out awards (Lightning fingers, Picasso, Early bird...), and the

@@ -31,6 +31,11 @@ module.exports = defineConfig({
       DD_REVEAL_MS: '1500',
       // Chaos rounds only apply when a host turns them on; this fixes their order for the test.
       DD_CHAOS: 'mirror,oneline,blind',
+      // Impostor mode: quick lines and votes.
+      DD_SKETCH_MS: '9000',
+      DD_VOTE_MS: '20000',
+      DD_LAST_CHANCE_MS: '8000',
+      DD_UNMASK_MS: '3500',
     },
   },
 });

@@ -705,6 +705,11 @@ test('drawn avatars and the audience: a full room lets a 9th person watch and re
   // During the game the audience gets blanks and a reaction bar instead of the chat box.
   await host.locator('#start-btn').click();
   await expect(host.locator('.choice').first()).toBeVisible();
+  // The audience predicts who will guess first (not the drawer).
+  await expect(fan.locator('#predict-card')).toBeVisible();
+  await expect(fan.locator('#predict-card [data-predict]')).toHaveCount(7);
+  await fan.locator('#predict-card [data-predict]').first().click();
+  await expect(fan.locator('#predict-card [data-predict].on')).toHaveCount(1);
   await host.locator('.choice-easy').click();
   await drawWithMouse(host);
   await expect(fan.locator('#word-display .mask')).toBeVisible();
@@ -963,6 +968,102 @@ test('family-friendly chat, rude names refused, the Spanish pack, and the instal
   const word = await host.evaluate(() => window.__dd.S.view.turn.word);
   await guess(guest, word.normalize('NFD').replace(/\p{M}/gu, ''));
   await expect(guest.locator('#chat-log .msg-you-correct')).toHaveCount(1);
+  expect(errors).toEqual([]);
+  await deskCtx.close();
+  await guestCtx.close();
+});
+
+test('impostor mode: one line each, the impostor only sees the category, vote from the player list', async ({ browser }) => {
+  const deskCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const guestCtx = await browser.newContext({ ...phoneDevice });
+  const host = await deskCtx.newPage();
+  const errors = [];
+  host.on('pageerror', (e) => errors.push(e.message));
+  await host.goto('/');
+  await host.locator('#name-input').fill('Maya');
+  await host.locator('#create-btn').click();
+  await expect(host.locator('#screen-lobby')).toBeVisible();
+  await host.locator('#set-mode button', { hasText: 'Impostor' }).click();
+  await expect(host.locator('#setting-time')).toBeHidden();
+  await host.locator('#set-rounds button', { hasText: '2' }).click();
+  const code = (await host.locator('#lobby-code').textContent()) || '';
+  const guest = await guestCtx.newPage();
+  guest.on('pageerror', (e) => errors.push(e.message));
+  await guest.goto(`/r/${code}`);
+  await guest.locator('#name-input').fill('Leo');
+  await guest.locator('#invite-join-btn').click();
+  await expect(guest.locator('#mode-note')).toContainText('impostor');
+  // Two people aren't enough for Impostor mode; a bot makes three.
+  await expect(host.locator('#start-btn')).toBeDisabled();
+  await host.locator('#add-bot-btn').click();
+  await expect(host.locator('#start-btn')).toBeEnabled();
+  await host.locator('#start-btn').click();
+
+  const pages = [host, guest];
+  const done = new Set();
+  let sawRoles = 0;
+  let shotVote = false;
+  let shotUnmask = false;
+  for (let guard = 0; guard < 400; guard++) {
+    const views = await Promise.all(pages.map((p) => p.evaluate(() => window.__dd.S.view)));
+    if (views.every((v) => v.phase === 'gameOver')) break;
+    for (let i = 0; i < pages.length; i++) {
+      const page = pages[i];
+      const v = views[i];
+      const t = v.turn;
+      if (!t || t.mode !== 'impostor') continue;
+      const key = `${i}:${t.id}:${v.phase}:${t.step}`;
+      if (v.phase === 'sketch' && !done.has(`roles:${t.id}:${i}`)) {
+        // The impostor only gets the category; everyone else gets the word.
+        done.add(`roles:${t.id}:${i}`);
+        sawRoles++;
+        if (t.role === 'impostor') {
+          expect(t.word).toBeNull();
+          await expect(page.locator('#word-display')).toContainText("You're the impostor");
+        } else {
+          expect(t.word).toBeTruthy();
+          await expect(page.locator('#word-display .word')).toBeVisible();
+        }
+      }
+      if (v.phase === 'sketch' && t.artistId === v.me && !t.lineDone && !done.has(key)) {
+        done.add(key);
+        await page.locator('[data-dismiss-role]').click({ timeout: 1000 }).catch(() => {});
+        if (page === guest) await drawWithTouch(guest, guestCtx, (t.step % 3) * 0.1 - 0.1);
+        else {
+          const b = await boardBox(host);
+          await host.mouse.move(b.x + b.width * 0.3, b.y + b.height * (0.3 + t.step * 0.08));
+          await host.mouse.down();
+          await host.mouse.move(b.x + b.width * 0.7, b.y + b.height * (0.35 + t.step * 0.08), { steps: 12 });
+          await host.mouse.up();
+        }
+      }
+      if (v.phase === 'vote' && !t.myVote && !done.has(key)) {
+        done.add(key);
+        await expect(page.locator('#player-list li[data-vote]')).toHaveCount(2);
+        if (page === guest && !shotVote) {
+          shotVote = true;
+          await shot(guest, 'phone-21-impostor-vote');
+        }
+        await page.locator('#player-list li[data-vote]').first().click();
+        await expect(page.locator('#player-list li.voted-for')).toHaveCount(1);
+      }
+      if (v.phase === 'lastChance' && t.role === 'impostor' && !done.has(key)) {
+        done.add(key);
+        await guess(page, 'pizza');
+      }
+      if (v.phase === 'unmask' && page === host && !shotUnmask) {
+        shotUnmask = true;
+        await expect(host.locator('.ov-unmask')).toBeVisible();
+        await shot(host, 'desktop-20-impostor-unmask');
+      }
+    }
+    await host.waitForTimeout(300);
+  }
+  expect(sawRoles).toBe(4); // two rounds, two people
+  await expect(host.locator('#screen-podium')).toBeVisible({ timeout: 20000 });
+  await host.locator('#to-gallery-btn').click();
+  await expect(host.locator('.frame')).toHaveCount(2);
+  await expect(host.locator('.frame-by', { hasText: '🕵️' })).toHaveCount(2);
   expect(errors).toEqual([]);
   await deskCtx.close();
   await guestCtx.close();

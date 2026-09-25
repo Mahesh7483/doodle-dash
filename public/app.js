@@ -1,6 +1,6 @@
 import { Board, DrawInput, PALETTE, COLOR_NAMES, replay, exportPng, exportPoster } from './canvas.js';
 import { sfx, isMuted, setMuted } from './sound.js';
-import { STICKERS, STICKER_IDS, REACT_ICON, AWARD_ICONS, CHAOS } from './stickers.js';
+import { STICKERS, STICKER_IDS, REACT_ICON, AWARD_ICONS, CHAOS, IMPOSTOR_ICON } from './stickers.js';
 import { syncCards } from './ui.js';
 import { AvatarPad, setAvatars, setAvatar } from './avatar.js';
 
@@ -541,6 +541,13 @@ $('#fun-card').addEventListener('click', async (e) => {
 // The host can remove a player during the game too (tap the ✕ on their chip).
 $('#player-list').addEventListener('click', async (e) => {
   const k = e.target.closest('[data-kick]');
+  const vote = !k && e.target.closest('li[data-vote]');
+  if (vote) {
+    sfx.click();
+    const res = await emit('vote', vote.dataset.vote);
+    if (res.error) toast(res.error);
+    return;
+  }
   if (!k || !isHost()) return;
   if (!confirm(`Remove ${k.dataset.name} from the game? They won't be able to rejoin.`)) return;
   const res = await emit('kick', k.dataset.kick);
@@ -571,7 +578,7 @@ function onState(v) {
   S.code = v.code;
   const me = player(v.me);
   const turn = v.turn;
-  const key = `${v.phase}:${turn ? turn.id : ''}`;
+  const key = `${v.phase}:${turn ? turn.id : ''}:${turn && turn.step != null ? turn.step : ''}`;
   if (key !== S.phaseKey) {
     S.phaseKey = key;
     S.phaseTotal = v.phaseMs || Math.max(1, v.endsAt - v.serverNow);
@@ -580,6 +587,10 @@ function onState(v) {
   }
   if (prev && prev.phase === 'lobby' && v.phase === 'lobby' && v.players.length > prev.players.length) sfx.join();
   if (prev && me && prev.hostId !== v.hostId && v.hostId === v.me) toast('You are now the host.');
+  if (prev && prev.audience && v.audience && v.audience.points > prev.audience.points) {
+    toast(`🔮 You called it! +${v.audience.points - prev.audience.points} crowd points`);
+    sfx.correct();
+  }
   autoAvatar(v, me);
   applySavedSettings(v);
   hideConn();
@@ -603,6 +614,13 @@ function onPhaseChange(prev, v) {
     drawInput.tool = drawInput.tool || 'brush';
   }
   if (v.phase === 'reveal' && prev && prev.phase === 'drawing') sfx.turnEnd();
+  if (live && turn && turn.mode === 'impostor') {
+    if (v.phase === 'sketch' && turn.artistId === v.me) {
+      sfx.yourTurn();
+      vibrate(60);
+    } else if (v.phase === 'vote' && prev.phase !== 'vote') sfx.pop();
+    else if (v.phase === 'unmask' && prev.phase !== 'unmask') sfx.turnEnd();
+  }
   if (v.phase === 'gameOver') {
     S.gameOverScreen = 'podium';
     if (prev && prev.phase !== 'gameOver') {
@@ -693,6 +711,13 @@ function renderLobby() {
   $('#solo-hint').hidden = !(host && v.players.length === 1);
 
   // Settings
+  const impMode = v.settings.mode === 'impostor';
+  seg($('#set-mode'), [['classic', 'Classic'], ['impostor', '🕵️ Impostor']], impMode ? 'impostor' : 'classic', host, (m) => updateSettings({ mode: m }));
+  $('#mode-note').textContent = impMode
+    ? "Everyone adds one line at a time to one drawing, but one player doesn't know the word. Vote to find the impostor! (3+ players)"
+    : 'One player draws, everyone else races to guess the word.';
+  $('#setting-time').hidden = impMode;
+  $('#setting-chaos').hidden = impMode;
   seg($('#set-rounds'), [2, 3, 4, 5].map((n) => [n, String(n)]), v.settings.rounds, host, (n) => updateSettings({ rounds: n }));
   seg($('#set-time'), [60, 80, 100].map((n) => [n, `${n}s`]), v.settings.drawTime, host, (n) => updateSettings({ drawTime: n }));
   seg($('#set-pack'), PACKS, v.settings.pack, host, (id) => updateSettings({ pack: id }), 'chip');
@@ -720,10 +745,11 @@ function renderLobby() {
   const start = $('#start-btn');
   start.hidden = !host;
   const needCustom = custom && v.settings.customCount < 10;
-  start.disabled = connected < 2 || needCustom;
+  const need = impMode ? 3 : 2;
+  start.disabled = connected < need || needCustom;
   let hint = '';
   if (host) {
-    if (connected < 2) hint = 'You need at least 2 players — share the code or add a bot!';
+    if (connected < need) hint = impMode ? 'Impostor mode needs 3 players — share the code or add bots!' : 'You need at least 2 players — share the code or add a bot!';
     else if (needCustom) hint = 'Add at least 10 custom words, or pick another pack.';
     else hint = `${connected} players ready. Let's go!`;
   } else if (v.audience) {
@@ -775,7 +801,7 @@ function savedSettings() {
 
 function rememberSettings(patch) {
   const keep = {};
-  for (const k of ['rounds', 'drawTime', 'pack', 'chaos', 'clean', 'customWords']) if (patch[k] !== undefined) keep[k] = patch[k];
+  for (const k of ['rounds', 'drawTime', 'pack', 'chaos', 'clean', 'mode', 'customWords']) if (patch[k] !== undefined) keep[k] = patch[k];
   ls.set('dd.settings', JSON.stringify({ ...savedSettings(), ...keep }));
 }
 
@@ -787,7 +813,7 @@ function applySavedSettings(v) {
   settingsAppliedFor = v.code;
   const saved = savedSettings();
   const patch = {};
-  for (const k of ['rounds', 'drawTime', 'pack', 'chaos', 'clean']) if (saved[k] !== undefined && saved[k] !== v.settings[k]) patch[k] = saved[k];
+  for (const k of ['rounds', 'drawTime', 'pack', 'chaos', 'clean', 'mode']) if (saved[k] !== undefined && saved[k] !== v.settings[k]) patch[k] = saved[k];
   if (saved.pack === 'custom' && typeof saved.customWords === 'string') patch.customWords = saved.customWords;
   if (!Object.keys(patch).length) return;
   emit('settings', patch).then((res) => {
@@ -895,7 +921,7 @@ const drawInput = new DrawInput(board, canvas, (op) => socket.emit('draw', op), 
     if (!S.inkWarned) toast('Ink limit reached for this turn!');
     S.inkWarned = true;
   },
-  onOneLine: () => toast("That was your one line! Now wait for the guesses."),
+  onOneLine: () => toast(S.view && S.view.turn && S.view.turn.mode === 'impostor' ? "That's your line! Next player's turn." : 'That was your one line! Now wait for the guesses.'),
   onStrokeEnd: () => {
     hideCoach('draw');
     if (drawInput.chaos === 'oneline' && S.view) renderGame();
@@ -905,6 +931,13 @@ const drawInput = new DrawInput(board, canvas, (op) => socket.emit('draw', op), 
 function renderGame() {
   const v = S.view;
   const t = v.turn;
+  if (t && t.mode === 'impostor') {
+    renderImpostor();
+    return;
+  }
+  drawInput.oneStroke = false;
+  $('#imp-chip').hidden = true;
+  document.body.classList.remove('is-impostor');
   const me = player(v.me);
   const amDrawer = !!(t && t.drawerId === v.me);
   const drawer = t ? player(t.drawerId) : null;
@@ -966,6 +999,7 @@ function renderGame() {
 
   $('#chat-form').hidden = !!v.audience;
   $('#audience-bar').hidden = !v.audience;
+  renderPredict();
 
   // First-game tips (each once per device).
   if (v.phase === 'choosing' && amDrawer) coach('choose', $('#canvas-wrap'), 'Your turn! Pick a word. Harder ones score more for everyone.', 'below');
@@ -1040,23 +1074,30 @@ window.addEventListener('resize', () => {
 function renderPlayers() {
   const v = S.view;
   const t = v.turn;
-  const pts = v.phase === 'reveal' && t && t.points ? t.points : null;
+  const pts = (v.phase === 'reveal' || v.phase === 'unmask') && t && t.points ? t.points : null;
+  const imp = !!(t && t.mode === 'impostor');
   const sorted = [...v.players].sort((a, b) => b.score - a.score);
   const ranks = new Map();
   sorted.forEach((p, i) => ranks.set(p.id, i > 0 && sorted[i - 1].score === p.score ? ranks.get(sorted[i - 1].id) : i + 1));
   $('#player-list').innerHTML = sorted
     .map((p) => {
-      const isDrawer = t && t.drawerId === p.id && v.phase !== 'reveal';
-      const cls = ['pl', p.connected ? '' : 'away', p.guessed ? 'guessed' : '', isDrawer ? 'drawing' : '', p.id === v.me ? 'me' : ''].join(' ');
+      const isDrawer = imp ? v.phase === 'sketch' && t.artistId === p.id : t && t.drawerId === p.id && v.phase !== 'reveal';
+      const done = imp ? v.phase === 'vote' && t.voted.includes(p.id) : p.guessed;
+      const cls = ['pl', p.connected ? '' : 'away', done ? 'guessed' : '', isDrawer ? 'drawing' : '', p.id === v.me ? 'me' : ''].join(' ');
       let status = '';
       if (isDrawer) status = '<span class="pl-status" title="Drawing"><svg class="icon icon-xs"><use href="#i-brush"/></svg></span>';
-      else if (p.guessed) status = '<span class="pl-status ok" title="Guessed it"><svg class="icon icon-xs"><use href="#i-check"/></svg></span>';
+      else if (done) status = `<span class="pl-status ok" title="${imp ? 'Voted' : 'Guessed it'}"><svg class="icon icon-xs"><use href="#i-check"/></svg></span>`;
+      const ink = imp && t.inks && t.inks[p.id] != null ? `<span class="pl-ink" style="--ink:${PALETTE[t.inks[p.id]]}" title="Their lines"></span>` : '';
+      const unmasked = imp && v.phase === 'unmask' && t.impostorId === p.id ? ' <span class="pl-imp">impostor</span>' : '';
       const gain = pts && pts[p.id] ? ` <span class="pl-gain">+${pts[p.id]}</span>` : '';
       const kick = isHost() && p.id !== v.me ? `<button type="button" class="pl-kick" data-kick="${esc(p.id)}" data-name="${esc(p.name)}" aria-label="Remove ${esc(p.name)}"><svg class="icon icon-xs"><use href="#i-close"/></svg></button>` : '';
-      return `<li class="${cls}${kick ? ' has-kick' : ''}" data-pid="${esc(p.id)}">${kick}
+      const votable = imp && v.phase === 'vote' && !!player(v.me) && p.id !== v.me;
+      const voteAttr = votable ? ` data-vote="${esc(p.id)}" role="button" tabindex="0" aria-label="Vote for ${esc(p.name)}"` : '';
+      const voteCls = votable ? ` votable${t.myVote === p.id ? ' voted-for' : ''}` : '';
+      return `<li class="${cls}${kick ? ' has-kick' : ''}${voteCls}" data-pid="${esc(p.id)}"${voteAttr}>${kick}
         <span class="pl-rank">#${ranks.get(p.id)}</span>
         <span class="pl-av">${avatar(p)}${status}</span>
-        <span class="pl-main"><span class="pl-name">${esc(p.name)}${p.id === v.me ? ' <span class="you">(you)</span>' : ''}</span>
+        <span class="pl-main"><span class="pl-name">${ink}${esc(p.name)}${p.id === v.me ? ' <span class="you">(you)</span>' : ''}${unmasked}</span>
         <span class="pl-score">${p.connected ? `${p.score} pts` : 'reconnecting…'}${gain}</span></span>
       </li>`;
     })
@@ -1067,6 +1108,11 @@ function renderOverlay() {
   const v = S.view;
   const t = v.turn;
   const ov = $('#overlay');
+  if (t && t.mode === 'impostor') {
+    renderImpostorOverlay();
+    return;
+  }
+  ov.classList.remove('ov-bottom', 'still');
   const amDrawer = t && t.drawerId === v.me;
   const drawer = t ? player(t.drawerId) : null;
   let html = '';
@@ -1130,10 +1176,243 @@ function chaosCard(rule, forDrawer) {
 }
 
 $('#overlay').addEventListener('click', async (e) => {
+  if (e.target.closest('[data-dismiss-role]')) {
+    S.roleSeen = S.view && S.view.turn ? S.view.turn.id : null;
+    renderGame();
+    return;
+  }
+  const vote = e.target.closest('[data-vote]');
+  if (vote) {
+    sfx.click();
+    const res = await emit('vote', vote.dataset.vote);
+    if (res.error) toast(res.error);
+    return;
+  }
   const btn = e.target.closest('[data-choice]');
   if (!btn) return;
   $$('[data-choice]').forEach((b) => (b.disabled = true));
   const res = await emit('choose', Number(btn.dataset.choice));
+  if (res.error) toast(res.error);
+});
+
+// ---------------------------------------------------------------------------
+// Impostor mode: one line each on a shared drawing, then a vote.
+
+const inkOf = (t, id) => (t.inks && t.inks[id] != null ? PALETTE[t.inks[id]] : '#999');
+const inkDot = (t, id) => `<span class="ink-dot" style="--ink:${inkOf(t, id)}"></span>`;
+
+function renderImpostor() {
+  const v = S.view;
+  const t = v.turn;
+  const sketch = v.phase === 'sketch';
+  const artist = player(t.artistId);
+  const myTurn = sketch && t.artistId === v.me && !t.lineDone;
+  document.body.classList.remove('is-drawer');
+  document.body.classList.toggle('is-impostor', t.role === 'impostor' && v.phase !== 'unmask');
+
+  // Word area: the word for the artists, only the category for the impostor and watchers.
+  const label = $('#word-label');
+  const disp = $('#word-display');
+  let sr;
+  if (v.phase === 'unmask') {
+    label.textContent = 'The word was';
+    disp.innerHTML = wordHtml(t.word);
+    sr = `The word was ${t.word}`;
+  } else if (t.role === 'impostor') {
+    label.innerHTML = `Category: <b>${esc(t.category)}</b>`;
+    disp.innerHTML = `<span class="word-note imp-you">${IMPOSTOR_ICON}You're the impostor!</span>`;
+    sr = `You're the impostor. The category is ${t.category}.`;
+  } else if (t.word) {
+    label.innerHTML = `<span class="hide-narrow">Everyone knows it but the impostor · </span>${esc(t.category)}`;
+    disp.innerHTML = wordHtml(t.word);
+    sr = `The word is ${t.word}. One player doesn't know it.`;
+  } else {
+    label.innerHTML = `Category: <b>${esc(t.category)}</b>`;
+    disp.innerHTML = '<span class="word-note">Who is faking it?</span>';
+    sr = `Category: ${t.category}. Find the impostor.`;
+  }
+  fitWord();
+  if ($('#word-sr').textContent !== sr) $('#word-sr').textContent = sr;
+
+  renderPlayers();
+  renderOverlay();
+
+  // Whose line it is, on the canvas.
+  $('#chaos-chip').hidden = true;
+  const chip = $('#imp-chip');
+  const roleCard = sketch && t.step === 0 && S.roleSeen !== t.id && t.artistId !== v.me;
+  chip.hidden = !(sketch && artist) || roleCard;
+  chip.classList.toggle('mine', myTurn);
+  if (sketch && artist) {
+    const html = myTurn
+      ? `${inkDot(t, v.me)}<span>Your turn: add <b>one</b> line!</span>`
+      : `${inkDot(t, artist.id)}<span>${esc(artist.name)} is adding a line · ${t.step + 1}/${t.steps}</span>`;
+    if (chip.dataset.html !== html) {
+      chip.dataset.html = html;
+      chip.innerHTML = html;
+    }
+  }
+
+  // Drawing: one line in your own ink, on your turn only.
+  const lineKey = `${t.id}:${t.step}`;
+  if (drawInput.lineKey !== lineKey) {
+    drawInput.lineKey = lineKey;
+    drawInput.strokeUsed = false;
+  }
+  drawInput.oneStroke = true;
+  drawInput.chaos = null;
+  drawInput.tool = 'brush';
+  drawInput.sizeIndex = 1;
+  if (t.inks && t.inks[v.me] != null) drawInput.color = t.inks[v.me];
+  const canDraw = myTurn && (!drawInput.strokeUsed || !!drawInput.active);
+  $('#toolbar').hidden = true;
+  $('#blindfold').hidden = true;
+  drawInput.setEnabled(canDraw);
+  canvas.classList.toggle('can-draw', canDraw);
+
+  $('#chat-form').hidden = !!v.audience;
+  $('#audience-bar').hidden = !v.audience;
+  renderPredict();
+
+  const input = $('#chat-input');
+  const guessing = v.phase === 'lastChance' && t.role === 'impostor';
+  input.classList.toggle('private', false);
+  $('#chat-form').classList.toggle('private', false);
+  $('#chat-form').classList.toggle('last-chance', guessing);
+  if (guessing) input.placeholder = 'Your one guess at the word…';
+  else if (t.role === 'artist' && v.phase !== 'unmask') input.placeholder = "Chat (don't give the word away!)";
+  else input.placeholder = 'Say something…';
+
+  if (myTurn) coach('imp-line', $('#canvas-wrap'), 'Add ONE line to the drawing. Then it’s the next player’s turn.', 'inside');
+  else if (v.phase === 'vote' && player(v.me)) coach('imp-vote', $('#player-list'), 'Tap the player whose lines didn’t fit the word.', 'above');
+}
+
+function renderImpostorOverlay() {
+  const v = S.view;
+  const t = v.turn;
+  const ov = $('#overlay');
+  const me = player(v.me);
+  const pname = (id) => (player(id) ? player(id).name : 'Someone');
+  let html = '';
+  let bottom = false;
+
+  if (v.phase === 'sketch' && t.step === 0 && S.roleSeen !== t.id && t.artistId !== v.me) {
+    // The round's role card, for a few seconds (or until tapped).
+    if (S.roleTimerFor !== t.id) {
+      S.roleTimerFor = t.id;
+      setTimeout(() => {
+        if (S.roleSeen !== t.id) {
+          S.roleSeen = t.id;
+          if (S.view && S.view.turn && S.view.turn.id === t.id) renderGame();
+        }
+      }, 4500);
+    }
+    const kicker = `<div class="ov-kicker">Round ${v.round} of ${v.rounds}</div>`;
+    if (t.role === 'impostor') {
+      html = `<div class="ov-card ov-role is-imp"><span class="ov-imp-icon">${IMPOSTOR_ICON}</span>${kicker}
+        <h2 class="ov-title">You're the impostor!</h2>
+        <p class="ov-text">You don't know the word. The category is <b>${esc(t.category)}</b>. Watch the others and add lines that blend in.</p>
+        <button type="button" class="btn btn-primary" data-dismiss-role>Got it</button></div>`;
+    } else if (t.role === 'artist') {
+      html = `<div class="ov-card ov-role">${kicker}<div class="ov-kicker">The word is</div><h2 class="ov-word">${esc(t.word)}</h2>
+        <p class="ov-text">One of you is the <b>impostor</b> and doesn't know it. Add one line at a time, but don't make it too easy for them!</p>
+        <button type="button" class="btn btn-primary" data-dismiss-role>Got it</button></div>`;
+    } else {
+      html = `<div class="ov-card ov-role"><span class="ov-imp-icon">${IMPOSTOR_ICON}</span>${kicker}
+        <h2 class="ov-title">One of them is the impostor</h2>
+        <p class="ov-text">Category: <b>${esc(t.category)}</b>. Watch the lines and spot who's faking it.</p></div>`;
+    }
+  } else if (v.phase === 'vote') {
+    bottom = true;
+    const here = v.players.filter((p) => p.connected).length;
+    const progress = `${t.voted.length}/${here} voted`;
+    if (me) {
+      // Slim, so the drawing stays in view: the player list is the ballot.
+      html = `<div class="ov-card ov-vote ov-slim">
+        <b>${t.myVote ? `You voted for ${esc(pname(t.myVote))}` : "Who's the impostor? Tap a player to vote"}</b>
+        <span>${t.myVote ? 'Tap someone else to change your vote' : 'Whose lines didn’t fit the word?'} · ${progress}</span></div>`;
+    } else {
+      html = `<div class="ov-card ov-vote ov-slim"><b>The players are voting…</b><span>${progress}</span></div>`;
+    }
+  } else if (v.phase === 'lastChance') {
+    bottom = true;
+    const caught = player(t.caughtId);
+    html = t.role === 'impostor'
+      ? `<div class="ov-card ov-last is-imp"><span class="ov-imp-icon">${IMPOSTOR_ICON}</span><h2 class="ov-title">You've been caught!</h2>
+          <p class="ov-text">One guess to steal the win: type the word in the chat.</p></div>`
+      : `<div class="ov-card ov-last">${caught ? avatar(caught, 'avatar-lg') : ''}<h2 class="ov-title">${esc(pname(t.caughtId))} was caught!</h2>
+          <p class="ov-text">They get one guess at the word to steal the win<span class="dots"><i>.</i><i>.</i><i>.</i></span></p></div>`;
+  } else if (v.phase === 'unmask') {
+    const imp = player(t.impostorId) || { id: t.impostorId, name: t.impostorName, color: '#8a8697' };
+    const pts = t.points || {};
+    const rows = v.players
+      .filter((p) => pts[p.id])
+      .sort((a, b) => pts[b.id] - pts[a.id])
+      .map((p) => `<li>${avatar(p, 'avatar-sm')}<span class="rv-name">${esc(p.name)}${p.id === t.impostorId ? ' <span class="muted">(impostor)</span>' : ''}</span><span class="rv-pts">+${pts[p.id]}</span></li>`)
+      .join('');
+    const outcome = {
+      escaped: 'Got away with it! 🕵️',
+      stole: 'Caught, but guessed the word! 😈',
+      caught: 'Caught! The artists win 🎉',
+      left: 'They left the game',
+    }[t.outcome] || '';
+    const votes = Object.entries(t.votes || {});
+    const spotted = votes.filter(([, target]) => target === t.impostorId).length;
+    html = `<div class="ov-card ov-reveal ov-unmask ${t.outcome || ''}">
+      <div class="ov-kicker">The impostor was</div>
+      <div class="unmask-who">${avatar(imp, 'avatar-lg')}<h2 class="ov-title">${esc(imp.name)}</h2></div>
+      <div class="ov-badge">${outcome}</div>
+      <div class="unmask-word">The word was <b>${esc(t.word)}</b>${t.guess ? ` · they guessed “${esc(t.guess)}”` : ''}</div>
+      ${votes.length ? `<div class="ov-foot">${spotted} of ${votes.length} vote${votes.length === 1 ? '' : 's'} spotted them</div>` : ''}
+      ${rows ? `<ul class="rv-list">${rows}</ul>` : ''}
+      <div class="ov-foot">${t.last ? 'Final scores coming up…' : 'Next round coming up…'}</div>
+    </div>`;
+  }
+  const key = html ? `${v.phase}:${t.id}` : '';
+  if (ov.dataset.html !== html) {
+    ov.classList.toggle('still', ov.dataset.key === key); // no pop-in for updates (votes coming in)
+    ov.dataset.key = key;
+    ov.dataset.html = html;
+    ov.innerHTML = html;
+  }
+  ov.classList.toggle('ov-bottom', bottom);
+  ov.hidden = !html;
+}
+
+// ---------------------------------------------------------------------------
+// Audience predictions: who guesses first (classic) or who the impostor is.
+
+function renderPredict() {
+  const v = S.view;
+  const t = v.turn;
+  const card = $('#predict-card');
+  const show = v.audience && t && (t.predictOpen || v.audience.pick) && v.phase !== 'reveal' && v.phase !== 'unmask';
+  if (!show) {
+    card.hidden = true;
+    return;
+  }
+  const imp = t.mode === 'impostor';
+  const open = !!t.predictOpen;
+  const pick = v.audience.pick;
+  const counts = t.crowdPicks || {};
+  const options = v.players.filter((p) => imp || p.id !== t.drawerId);
+  const html = `<div class="pc-q">🔮 ${imp ? "Who's the impostor?" : 'Who will guess first?'} <span class="pc-pts">+${imp ? 150 : 100}</span>${v.audience.points ? `<span class="pc-mine">${v.audience.points} pts</span>` : ''}</div>
+    <div class="pc-opts">${options
+      .map((p) => `<button type="button" data-predict="${esc(p.id)}" class="${pick === p.id ? 'on' : ''}"${open ? '' : ' disabled'}>${avatar(p, 'avatar-xs')}<span>${esc(p.name)}</span>${counts[p.id] ? `<i title="Audience picks">${counts[p.id]}</i>` : ''}</button>`)
+      .join('')}</div>
+    ${open ? '' : `<div class="pc-note">Locked in${pick && player(pick) ? `: ${esc(player(pick).name)}` : ''}. Good luck!</div>`}`;
+  if (card.dataset.html !== html) {
+    card.dataset.html = html;
+    card.innerHTML = html;
+  }
+  card.hidden = false;
+}
+
+$('#predict-card').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-predict]');
+  if (!b || b.disabled) return;
+  sfx.click();
+  const res = await emit('predict', b.dataset.predict);
   if (res.error) toast(res.error);
 });
 
@@ -1346,6 +1625,11 @@ function renderPodium() {
   const tie = sorted.length > 1 && sorted[0].score === sorted[1].score;
   const streak = !tie && sorted[0] && sorted[0].wins > 1 ? ` <span class="win-count">${ordinal(sorted[0].wins)} win!</span>` : '';
   $('#winner-title').innerHTML = tie ? "It's a tie!" : `${esc(sorted[0] ? sorted[0].name : '')} wins!${streak}`;
+  const mvps = v.crowdTop || [];
+  $('#crowd-mvps').hidden = !mvps.length;
+  $('#crowd-mvps').innerHTML = mvps.length
+    ? `<div class="cm-title">🔮 Best predictions from the audience</div><ol>${mvps.map((f) => `<li>${avatar(f, 'avatar-xs')}<span>${esc(f.name)}</span><b>${f.points} pts</b></li>`).join('')}</ol>`
+    : '';
   const order = [top[1], top[0], top[2]];
   const place = ['second', 'first', 'third'];
   const label = ['2nd', '1st', '3rd'];
@@ -1456,7 +1740,7 @@ function renderGallery() {
         </button>
         <figcaption>
           <div class="frame-word">${esc(d.word)}</div>
-          <div class="frame-by">${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} <span>${esc(d.drawerName)}</span></div>
+          <div class="frame-by">${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} <span>${esc(d.drawerName)}${d.impostor ? ` · 🕵️ ${esc(d.impostor.name)}` : ''}</span></div>
           <div class="frame-meta">Round ${d.round} · ${d.guessedCount ? `${d.guessedCount} guessed it` : 'nobody guessed it'}</div>
           ${d.chaos && CHAOS[d.chaos] ? `<div class="frame-chaos">${CHAOS[d.chaos].svg}${CHAOS[d.chaos].label}</div>` : ''}
         </figcaption>
@@ -1662,7 +1946,7 @@ function openViewer(i, auto = slideshow) {
   $('#viewer').hidden = false;
   document.body.classList.add('viewer-open');
   $('#viewer-word').textContent = d.word;
-  $('#viewer-by').innerHTML = `${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} drawn by ${esc(d.drawerName)}${d.chaos && CHAOS[d.chaos] ? ` · ${CHAOS[d.chaos].label}` : ''} · ${viewerIndex + 1} / ${drawings.length}`;
+  $('#viewer-by').innerHTML = `${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot }, 'avatar-xs')} drawn by ${esc(d.drawerName)}${d.impostor ? ` · impostor: ${esc(d.impostor.name)}` : ''}${d.chaos && CHAOS[d.chaos] ? ` · ${CHAOS[d.chaos].label}` : ''} · ${viewerIndex + 1} / ${drawings.length}`;
   $('#viewer').classList.toggle('is-slideshow', slideshow);
   if (viewerStop) viewerStop();
   viewerStop = replay($('#viewer-canvas'), d.ops, {

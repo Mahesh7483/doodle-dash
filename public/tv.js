@@ -2,9 +2,9 @@
 // It connects as a watcher, so the server sends it exactly what a guesser sees (blanks, never
 // the word before the reveal) plus the public chat, reactions and the gallery.
 
-import { Board, replay } from './canvas.js';
+import { Board, replay, PALETTE } from './canvas.js';
 import { sfx, isMuted, setMuted } from './sound.js';
-import { STICKERS, AWARD_ICONS, CHAOS } from './stickers.js';
+import { STICKERS, AWARD_ICONS, CHAOS, IMPOSTOR_ICON } from './stickers.js';
 import { syncCards } from './ui.js';
 import { setAvatars, setAvatar } from './avatar.js';
 
@@ -163,7 +163,7 @@ $('#tv-form').addEventListener('submit', (e) => {
 function onState(v) {
   const prev = T.view;
   T.view = v;
-  const key = `${v.phase}:${v.turn ? v.turn.id : ''}`;
+  const key = `${v.phase}:${v.turn ? v.turn.id : ''}:${v.turn && v.turn.step != null ? v.turn.step : ''}`;
   if (key !== T.phaseKey) {
     T.phaseKey = key;
     T.phaseTotal = v.phaseMs || Math.max(1, v.endsAt - v.serverNow);
@@ -180,6 +180,8 @@ function onPhaseChange(prev, v) {
   if (!prev) return; // just connected: no fanfare for what already happened
   if (v.phase === 'drawing' && prev.phase === 'choosing') sfx.yourTurn();
   if (v.phase === 'reveal' && prev.phase === 'drawing') sfx.turnEnd();
+  if (v.phase === 'vote' && prev.phase !== 'vote') sfx.pop();
+  if (v.phase === 'unmask' && prev.phase !== 'unmask') sfx.turnEnd();
   if (v.phase === 'gameOver' && prev.phase !== 'gameOver') {
     sfx.fanfare();
     setTimeout(confetti, 150);
@@ -243,15 +245,17 @@ function renderLobby() {
     list.innerHTML = items.join('');
   }
   const s = v.settings;
+  const imp = s.mode === 'impostor';
   $('#tvl-settings').innerHTML =
-    [`${s.rounds} rounds`, `${s.drawTime} s to draw`, `${PACK_NAMES[s.pack] || 'Mixed'} words`].map((t) => `<span class="tv-pill">${esc(t)}</span>`).join('') +
-    (s.chaos ? `<span class="tv-pill tv-pill-chaos">${CHAOS.mirror.svg}Chaos rounds</span>` : '') +
+    (imp ? `<span class="tv-pill tv-pill-chaos">${IMPOSTOR_ICON}Impostor mode</span>` : '') +
+    [`${s.rounds} rounds`, imp ? null : `${s.drawTime} s to draw`, `${PACK_NAMES[s.pack] || 'Mixed'} words`].filter(Boolean).map((t) => `<span class="tv-pill">${esc(t)}</span>`).join('') +
+    (s.chaos && !imp ? `<span class="tv-pill tv-pill-chaos">${CHAOS.mirror.svg}Chaos rounds</span>` : '') +
     (v.crowd ? `<span class="tv-pill tv-pill-crowd"><svg class="icon"><use href="#i-eye"/></svg>${v.crowd} in the audience</span>` : '');
   const host = player(v.hostId);
   const ready = v.players.filter((p) => p.connected).length;
   let wait;
   if (!v.players.length) wait = 'Waiting for players to join';
-  else if (ready < 2) wait = 'Waiting for more players';
+  else if (ready < (imp ? 3 : 2)) wait = imp ? 'Impostor mode needs 3 players' : 'Waiting for more players';
   else wait = `Waiting for ${esc(host ? host.name : 'the host')} to start`;
   $('#tvl-wait').innerHTML = `${wait}<span class="dots"><i>.</i><i>.</i><i>.</i></span>`;
 }
@@ -262,6 +266,10 @@ function renderLobby() {
 function renderGame() {
   const v = T.view;
   const t = v.turn;
+  if (t && t.mode === 'impostor') {
+    renderImpostor();
+    return;
+  }
   const drawer = t ? player(t.drawerId) : null;
   $('#tvg-round').textContent = `Round ${v.round} of ${v.rounds}`;
   const label = $('#tvg-label');
@@ -297,21 +305,27 @@ function renderGame() {
 function renderPlayers() {
   const v = T.view;
   const t = v.turn;
-  const pts = v.phase === 'reveal' && t && t.points ? t.points : null;
+  const pts = (v.phase === 'reveal' || v.phase === 'unmask') && t && t.points ? t.points : null;
+  const imp = !!(t && t.mode === 'impostor');
+  const picks = (t && t.crowdPicks) || {};
   const sorted = [...v.players].sort((a, b) => b.score - a.score);
   const ranks = new Map();
   sorted.forEach((p, i) => ranks.set(p.id, i > 0 && sorted[i - 1].score === p.score ? ranks.get(sorted[i - 1].id) : i + 1));
   $('#tvg-players').classList.toggle('many', sorted.length + (v.crowd ? 1 : 0) > 6);
   $('#tvg-players').innerHTML = sorted
     .map((p) => {
-      const drawing = t && t.drawerId === p.id && v.phase !== 'reveal';
-      const cls = ['tvg-pl', p.connected ? '' : 'away', p.guessed ? 'guessed' : '', drawing ? 'drawing' : ''].join(' ');
+      const drawing = imp ? v.phase === 'sketch' && t.artistId === p.id : t && t.drawerId === p.id && v.phase !== 'reveal';
+      const done = imp ? v.phase === 'vote' && t.voted.includes(p.id) : p.guessed;
+      const cls = ['tvg-pl', p.connected ? '' : 'away', done ? 'guessed' : '', drawing ? 'drawing' : ''].join(' ');
       let status = '';
       if (drawing) status = '<span class="tvg-status" title="Drawing"><svg class="icon"><use href="#i-brush"/></svg></span>';
-      else if (p.guessed) status = '<span class="tvg-status ok" title="Guessed it"><svg class="icon"><use href="#i-check"/></svg></span>';
+      else if (done) status = `<span class="tvg-status ok" title="${imp ? 'Voted' : 'Guessed it'}"><svg class="icon"><use href="#i-check"/></svg></span>`;
       const gain = pts && pts[p.id] ? ` <span class="tvg-gain">+${pts[p.id]}</span>` : '';
+      const ink = imp && t.inks && t.inks[p.id] != null ? `<span class="ink-dot" style="--ink:${PALETTE[t.inks[p.id]]}"></span>` : '';
+      const tag = imp && v.phase === 'unmask' && t.impostorId === p.id ? ' <span class="pl-imp">impostor</span>' : '';
+      const crowd = picks[p.id] ? ` <span class="tvg-pick" title="Audience predictions">🔮 ${picks[p.id]}</span>` : '';
       return `<li class="${cls}" data-pid="${esc(p.id)}"><span class="tvg-rank">#${ranks.get(p.id)}</span>${avatar(p)}
-        <span class="tvg-pl-main"><span class="tvg-pl-name">${esc(p.name)}</span><span class="tvg-pl-score">${p.score} pts${gain}</span></span>${status}</li>`;
+        <span class="tvg-pl-main"><span class="tvg-pl-name">${ink}${esc(p.name)}${tag}</span><span class="tvg-pl-score">${p.score} pts${gain}${crowd}</span></span>${status}</li>`;
     })
     .join('') + (v.crowd ? `<li class="tvg-crowd"><svg class="icon"><use href="#i-eye"/></svg>${v.crowd} in the audience</li>` : '');
 }
@@ -320,6 +334,10 @@ function renderOverlay() {
   const v = T.view;
   const t = v.turn;
   const ov = $('#tvg-overlay');
+  if (t && t.mode === 'impostor') {
+    renderImpostorOverlay();
+    return;
+  }
   const drawer = t ? player(t.drawerId) : null;
   let html = '';
   if (v.phase === 'choosing') {
@@ -352,6 +370,84 @@ function renderOverlay() {
     ov.hidden = !html;
     ov.classList.toggle('is-reveal', v.phase === 'reveal');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Impostor mode on the big screen: the TV never knows the word before the unmask.
+
+function renderImpostor() {
+  const v = T.view;
+  const t = v.turn;
+  const artist = player(t.artistId);
+  $('#tvg-round').textContent = `Round ${v.round} of ${v.rounds} · Impostor`;
+  const label = $('#tvg-label');
+  const disp = $('#tvg-word');
+  if (v.phase === 'unmask') {
+    label.textContent = 'The word was';
+    disp.innerHTML = wordHtml(t.word);
+  } else {
+    label.innerHTML = `Category · <b>${esc(t.category)}</b>`;
+    disp.innerHTML = '<span class="word-note">Who is the impostor?</span>';
+  }
+  fitWord();
+  const chip = $('#tvg-drawer');
+  chip.hidden = !(v.phase === 'sketch' && artist);
+  if (artist) {
+    const ink = t.inks && t.inks[artist.id] != null ? `<span class="ink-dot" style="--ink:${PALETTE[t.inks[artist.id]]}"></span>` : '';
+    chip.innerHTML = `${avatar(artist)}${ink}<span>${esc(artist.name)} is adding a line · ${t.step + 1}/${t.steps}</span>`;
+  }
+  $('#tvg-chaos').hidden = true;
+  renderPlayers();
+  renderOverlay();
+}
+
+function renderImpostorOverlay() {
+  const v = T.view;
+  const t = v.turn;
+  const ov = $('#tvg-overlay');
+  const pname = (id) => (player(id) ? player(id).name : 'Someone');
+  let html = '';
+  let bottom = false;
+  if (v.phase === 'sketch' && t.step === 0 && T.introSeen !== t.id) {
+    if (T.introTimer !== t.id) {
+      T.introTimer = t.id;
+      setTimeout(() => {
+        T.introSeen = t.id;
+        if (T.view && T.view.turn && T.view.turn.id === t.id) renderOverlay();
+      }, 4500);
+    }
+    html = `<div class="tvo-card tvo-imp"><span class="tvo-imp-icon">${IMPOSTOR_ICON}</span>
+      <div class="tvo-kicker">Round ${v.round} of ${v.rounds}</div>
+      <h2>One of them is the impostor!</h2>
+      <div class="tvo-foot-line">Everyone knows the word except the impostor. Category: <b>${esc(t.category)}</b>. Watch every line!</div></div>`;
+  } else if (v.phase === 'vote') {
+    bottom = true;
+    const here = v.players.filter((p) => p.connected).length;
+    const picks = Object.entries(t.crowdPicks || {}).sort((a, b) => b[1] - a[1]);
+    const crowd = picks.length ? `<div class="tvo-foot-line">🔮 The audience suspects <b>${esc(pname(picks[0][0]))}</b></div>` : '';
+    html = `<div class="tvo-card tvo-reveal"><div class="tvo-reveal-main"><h2>Vote on your phones: who's the impostor?</h2></div>
+      <div class="tvo-reveal-side"><div class="tvo-badge">${t.voted.length}/${here} voted</div>${crowd}</div></div>`;
+  } else if (v.phase === 'lastChance') {
+    bottom = true;
+    const caught = player(t.caughtId);
+    html = `<div class="tvo-card tvo-reveal"><div class="tvo-reveal-main">${caught ? avatar(caught) : ''}<h2>${esc(pname(t.caughtId))} was caught!</h2></div>
+      <div class="tvo-reveal-side"><div class="tvo-foot-line">One guess at the word to steal the win<span class="dots"><i>.</i><i>.</i><i>.</i></span></div></div></div>`;
+  } else if (v.phase === 'unmask') {
+    bottom = true;
+    const imp = player(t.impostorId) || { id: t.impostorId, name: t.impostorName, color: '#8a8697' };
+    const outcome = { escaped: 'Got away with it!', stole: 'Caught, but guessed the word!', caught: 'Caught! The artists win', left: 'They left the game' }[t.outcome] || '';
+    html = `<div class="tvo-card tvo-reveal tvo-unmask"><div class="tvo-reveal-main"><div class="tvo-kicker">The impostor was</div>
+        <h2 class="tvo-reveal-word">${avatar(imp)} ${esc(imp.name)}</h2></div>
+      <div class="tvo-reveal-side"><div class="tvo-badge${t.outcome === 'caught' ? '' : ' none'}">${outcome}</div>
+        ${t.guess ? `<div class="tvo-foot-line">They guessed “${esc(t.guess)}”</div>` : ''}
+        <div class="tvo-foot-line">${t.last ? 'Final scores coming up…' : 'Next round coming up…'}</div></div></div>`;
+  }
+  if (ov.dataset.html !== html) {
+    ov.dataset.html = html;
+    ov.innerHTML = html;
+    ov.hidden = !html;
+  }
+  ov.classList.toggle('is-reveal', bottom);
 }
 
 function wordHtml(word) {
@@ -501,6 +597,15 @@ function renderAwards() {
       <div class="award-body"><div class="award-title">Crowd favourite</div>
         <div class="award-who">${avatar({ id: d.drawerId, name: d.drawerName, color: d.drawerColor, bot: d.drawerBot })} ${esc(d.drawerName)}</div>
         <div class="award-detail">“${esc(d.word)}” · ${counts[fav]} like${counts[fav] === 1 ? '' : 's'}</div></div>
+    </div>`);
+  }
+  const mvp = (v && v.crowdTop && v.crowdTop[0]) || null;
+  if (mvp) {
+    cards.push(`<div class="award" data-key="predictor" style="--delay:${0.9 + (awards.length + 1) * 0.12}s">
+      <span class="award-icon tv-crystal">🔮</span>
+      <div class="award-body"><div class="award-title">Best predictor</div>
+        <div class="award-who">${avatar(mvp)} ${esc(mvp.name)} <span class="muted">(audience)</span></div>
+        <div class="award-detail">${mvp.points} crowd points</div></div>
     </div>`);
   }
   // In place, so likes coming in don't replay every card's pop-in.
