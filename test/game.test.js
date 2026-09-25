@@ -1071,3 +1071,38 @@ test('share links: the server makes an empty room; the first to join hosts; unus
   for (let i = 0; i < MAX_EMPTY_ROOMS; i++) manager.createEmptyRoom();
   assert.match(manager.createEmptyRoom().error, /Try again/);
 });
+
+test('game over: any player can play again after 30 s; "did you have fun?" votes and stats', () => {
+  const env = setup({ players: 3 });
+  const { room, ids, manager } = env;
+  const fan = manager.joinAudience(room.code, 'token-fun-fan', 'Fan').member;
+  room.connectAudience(fan.id);
+  room.updateSettings(ids[0], { rounds: 2, chaos: true });
+  assert.equal(room.feedback(ids[1], 3).error, 'You can vote after the game.');
+  room.start(ids[0]);
+  assert.equal(manager.stats.gamesStarted, 1);
+  assert.equal(manager.stats.chaosGames, 1);
+  while (room.phase !== 'gameOver') env.run(1000, 1000);
+  assert.equal(manager.stats.gamesFinished, 1);
+  assert.equal(manager.stats.players, 3);
+
+  // Only the host at first...
+  assert.equal(room.playAgain(ids[1]).error, 'Only the host can restart.');
+  const view = env.lastState(ids[1]);
+  assert.equal(view.anyoneRestartMs, 30000);
+  assert.ok(view.gameOverAt);
+
+  // Votes: players and the audience, one each (changing your mind replaces it).
+  assert.ok(room.feedback(ids[1], 3).ok);
+  assert.ok(room.feedback(ids[1], 2).ok);
+  assert.ok(room.feedback(ids[2], 3).ok);
+  assert.ok(room.feedback(fan.id, 1).ok);
+  assert.equal(room.feedback(ids[0], 5).error, 'Bad vote.');
+  assert.deepEqual(manager.stats.fun, { 1: 1, 2: 1, 3: 1 });
+
+  // ...then anyone (but not the audience) after 30 s.
+  env.run(30000, 1000);
+  assert.equal(room.playAgain(fan.id).error, 'Only the host can restart.');
+  assert.ok(room.playAgain(ids[2]).ok);
+  assert.equal(room.phase, 'lobby');
+});

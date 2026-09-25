@@ -62,6 +62,13 @@ const MAX_AUDIENCE = 50;
 // unused one closes after roomIdleMs like any empty room. This caps how many can wait at once.
 const MAX_EMPTY_ROOMS = 300;
 
+// After a game, if the host doesn't restart, any player can after this long.
+const PLAY_AGAIN_ANYONE_MS = 30000;
+
+function newStats() {
+  return { since: Date.now(), gamesStarted: 0, gamesFinished: 0, chaosGames: 0, players: 0, fun: { 1: 0, 2: 0, 3: 0 } };
+}
+
 const DEFAULT_TIMING = {
   chooseMs: 15000,
   revealMs: 5000,
@@ -195,6 +202,7 @@ class Room {
   constructor(code, opts = {}) {
     this.code = code;
     this.opts = opts;
+    this.usage = opts.stats || newStats(); // shared counters for /stats (this.stats is per-player awards)
     this.now = opts.now || Date.now;
     this.rng = opts.rng || Math.random;
     this.send = opts.send || (() => {});
@@ -589,6 +597,8 @@ class Room {
       return { error: 'Add at least 10 custom words, or pick another word pack.' };
     }
     this.notice = null;
+    this.usage.gamesStarted++;
+    if (this.settings.chaos) this.usage.chaosGames++;
     for (const p of this.players) {
       p.score = 0;
       p.guessed = false;
@@ -606,8 +616,10 @@ class Room {
     return { ok: true };
   }
 
+  // The host restarts; if they're idle, any player can after PLAY_AGAIN_ANYONE_MS.
   playAgain(pid) {
-    if (pid !== this.hostId) return { error: 'Only the host can restart.' };
+    const anyone = this.get(pid) && this.phase === 'gameOver' && this.now() - (this.gameOverAt || 0) >= PLAY_AGAIN_ANYONE_MS;
+    if (pid !== this.hostId && !anyone) return { error: 'Only the host can restart.' };
     if (this.phase !== 'gameOver') return { error: 'The game is not over yet.' };
     this.backToLobby(null);
     return { ok: true };
@@ -982,6 +994,10 @@ class Room {
     this.phase = 'gameOver';
     this.turn = null;
     this.endsAt = 0;
+    this.gameOverAt = this.now();
+    this.fun = new Map(); // player/audience id -> 1..3
+    this.usage.gamesFinished++;
+    this.usage.players += this.players.filter((p) => !p.bot).length;
     this.awards = this.computeAwards();
     this.system('Game over!', 'round');
     this.broadcastState();
@@ -1023,6 +1039,23 @@ class Room {
     const abstract = best((st) => st.stumped);
     if (abstract) out.push({ id: 'abstract', title: 'Abstract artist', ...who(abstract.st), detail: `${abstract.v} drawing${abstract.v === 1 ? '' : 's'} nobody could guess` });
     return out;
+  }
+
+  // ---- "Did you have fun?" (after the game): one vote per person per game, no personal data.
+
+  feedback(pid, score) {
+    const who = this.get(pid) || this.audience.get(pid);
+    if (!who || who.bot) return { error: 'Not in room.' };
+    if (this.phase !== 'gameOver' || !this.fun) return { error: 'You can vote after the game.' };
+    const s = Number(score);
+    if (![1, 2, 3].includes(s)) return { error: 'Bad vote.' };
+    const fun = this.usage.fun;
+    const before = this.fun.get(pid);
+    if (before) fun[before]--;
+    fun[s]++;
+    this.fun.set(pid, s);
+    if (!before) console.log(JSON.stringify({ event: 'fun', score: s, chaos: this.settings.chaos }));
+    return { ok: true };
   }
 
   // ---- gallery likes (after the game)
@@ -1316,7 +1349,12 @@ class Room {
     if (this.watchers.has(pid)) view.watching = true;
     const fan = this.audience.get(pid);
     if (fan) view.audience = { name: fan.name, color: fan.color };
-    if (this.phase === 'gameOver') view.awards = this.awards || [];
+    if (this.phase === 'gameOver') {
+      view.awards = this.awards || [];
+      view.gameOverAt = this.gameOverAt;
+      view.anyoneRestartMs = PLAY_AGAIN_ANYONE_MS;
+      if (this.fun && this.fun.has(pid)) view.funVote = this.fun.get(pid);
+    }
     // Only the host gets the custom word list back, and only while in the lobby.
     if (pid === this.hostId && this.phase === 'lobby') view.customWords = this.customWords.join(', ');
     if (t && this.phase !== 'lobby' && this.phase !== 'gameOver') {
@@ -1509,7 +1547,8 @@ function wireOp(o) {
 
 class RoomManager {
   constructor(opts = {}) {
-    this.opts = opts;
+    this.stats = newStats(); // shared by every room: games, players, fun votes since start
+    this.opts = { ...opts, stats: this.stats };
     this.now = opts.now || Date.now;
     this.rng = opts.rng || Math.random;
     this.timing = { ...DEFAULT_TIMING, ...(opts.timing || {}) };
@@ -1648,6 +1687,7 @@ module.exports = {
   MAX_WATCHERS,
   MAX_AUDIENCE,
   MAX_EMPTY_ROOMS,
+  PLAY_AGAIN_ANYONE_MS,
   AVATAR_SIZES,
   sanitizeAvatar,
   CHAOS,

@@ -197,6 +197,7 @@ socket.on('avatar', (a) => setAvatar(a));
 socket.on('chat', (m) => renderChat(m, true));
 socket.on('chatHistory', ({ messages }) => {
   chatLog.innerHTML = '';
+  $('#lobby-chat-log').innerHTML = '';
   for (const m of messages || []) renderChat(m, false);
   chatLog.scrollTop = chatLog.scrollHeight;
   chatPinned = true;
@@ -391,6 +392,7 @@ function enterRoom(code) {
     S.gallery = null;
     S.gameOverScreen = 'podium';
     $('#chat-log').innerHTML = '';
+    $('#lobby-chat-log').innerHTML = '';
   }
   S.code = code;
   S.invite = null;
@@ -495,6 +497,36 @@ $('#share-results-btn').addEventListener('click', async () => {
     }
   }
   copyText(text, 'Results copied — paste them anywhere!');
+});
+
+// Lobby chat and stickers.
+$('#lobby-react').innerHTML = STICKER_IDS.map((id) => `<button type="button" data-react="${id}" aria-label="${STICKERS[id].label}">${STICKERS[id].svg}</button>`).join('');
+$('#lobby-react').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-react]');
+  if (b) sendReaction(b.dataset.react);
+});
+$('#lobby-chat-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const input = $('#lobby-chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  const res = await emit('chat', text);
+  if (res.error === 'Slow down!') {
+    toast('Whoa, slow down a little!');
+    if (!input.value) input.value = text;
+  }
+});
+
+// "Did you have fun?" on the podium: one tap, can be changed.
+$('#fun-card').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-fun]');
+  if (!b) return;
+  const res = await emit('feedback', Number(b.dataset.fun));
+  if (res.error) return toast(res.error);
+  for (const x of $$('[data-fun]')) x.classList.toggle('on', x === b);
+  $('#fun-card .fun-q').textContent = 'Thanks! 💛';
+  sfx.pop();
 });
 
 // The host can remove a player during the game too (tap the ✕ on their chip).
@@ -642,6 +674,7 @@ function renderLobby() {
   $('#lobby-players').innerHTML = items.join('');
   $('#add-bot-btn').hidden = !host || v.players.length >= MAX_PLAYERS;
   $('#audience-banner').hidden = !v.audience;
+  $('#lobby-chat-form').hidden = !!v.audience;
   $('#take-seat-btn').hidden = !(v.audience && v.players.length < MAX_PLAYERS);
   $('#crowd-line').hidden = !v.crowd;
   $('#crowd-line').innerHTML = `<svg class="icon icon-sm"><use href="#i-eye"/></svg> ${v.crowd} in the audience`;
@@ -1263,6 +1296,11 @@ function renderChat(m, live) {
   }
   log.appendChild(li);
   while (log.childElementCount > 150) log.firstElementChild.remove();
+  // The lobby shows the same conversation, so people can chat while they wait.
+  const lobbyLog = $('#lobby-chat-log');
+  lobbyLog.appendChild(li.cloneNode(true));
+  while (lobbyLog.childElementCount > 60) lobbyLog.firstElementChild.remove();
+  lobbyLog.scrollTop = lobbyLog.scrollHeight;
   if (atBottom || m.from === (S.view && S.view.me)) {
     log.scrollTop = log.scrollHeight;
     chatPinned = true;
@@ -1323,15 +1361,27 @@ function renderPodium() {
   renderPlayAgain();
 }
 
+let playAgainTimer = null;
 function renderPlayAgain() {
   const v = S.view;
   const host = isHost();
   const over = v && v.phase === 'gameOver';
   const hostP = v ? player(v.hostId) : null;
-  for (const b of $$('[data-play-again]')) b.hidden = !(over && host);
+  // If the host doesn't restart, any player can after a short while (the server checks too).
+  const wait = over ? v.gameOverAt + (v.anyoneRestartMs || 30000) - serverNow() : Infinity;
+  const anyone = over && !!player(v.me) && wait <= 0;
+  clearTimeout(playAgainTimer);
+  if (over && !host && wait > 0) playAgainTimer = setTimeout(renderPlayAgain, wait + 300);
+  for (const b of $$('[data-play-again]')) b.hidden = !(over && (host || anyone));
   for (const p of $$('[data-wait-host]')) {
-    p.hidden = !over || host;
+    p.hidden = !over || host || anyone;
     p.textContent = `Waiting for ${hostP ? hostP.name : 'the host'} to start a new game…`;
+  }
+  const fun = $('#fun-card');
+  fun.hidden = !over;
+  if (over) {
+    for (const x of $$('[data-fun]')) x.classList.toggle('on', Number(x.dataset.fun) === v.funVote);
+    $('#fun-card .fun-q').textContent = v.funVote ? 'Thanks! 💛' : 'Did you have fun?';
   }
 }
 

@@ -26,7 +26,9 @@ creating the room to the gallery.
 - **Built for phones first.** Full-width canvas, big tap targets, a toolbar that fits one hand,
   and chat that keeps the drawing in view while you type. Strokes are smoothed into curves, so
   finger drawings look good. First-timers get a few one-time tips, and the host's settings are
-  remembered for their next room. It works on laptops too, with a three-column layout.
+  remembered for their next room. There's chat and stickers in the lobby while you wait, a 🎲
+  for a quick fun name, and if the host wanders off after a game, anyone can press Play again
+  after 30 seconds. It works on laptops too, with a three-column layout.
 - **One-tap join.** Friends scan the QR code or open the `/r/ABCD` link and they're in. You
   can also get a **share link** before joining: the server makes the room, you drop the link in
   the group chat, and whoever opens it first is the host (or just open `/new`).
@@ -140,6 +142,12 @@ The first time you run the browser tests on your own machine you may need
 | `test/bots.test.js` | adding and removing bots, bots never hosting, a solo game against a bot played to the end (the bot draws its whole doodle and guesses only after there's ink), bots never leaking the word, every doodle is valid drawing data |
 | `test/integration.test.js` | starts the real server with short timers, plays a full 3-player game over Socket.IO to the end with a TV socket watching, checks every score against the formula, repeats the leak check on what each socket (and the TV) received, removes a player, and has a 9th person join the audience, react and then take a free seat |
 | `e2e/game.spec.js` | desktop host + iPhone-size guest: create, join by link and by code, draw with mouse and touch, check the pixels appear on the other screen, refresh mid-turn as guesser and as drawer, guess, reactions, podium, gallery replay and likes, Save PNG, play again; a phone playing a whole game alone against a bot; and party mode: a 1080p TV follows a 3-player game (blanks only, the drawing, reactions, podium, slideshow) while the host removes a player; a drawn avatar showing on another screen and a 9th person reacting from the audience; and chaos rounds (a mirrored stroke lands on the other side, the bot's one-line turn, the blindfold cover) |
+
+### Stats
+
+`GET /stats` shows numbers since the last restart, with no personal data: rooms open, people
+online, games started and finished, chaos games, and the podium's one-tap "Did you have fun?"
+votes (loved / liked / meh).
 
 ### Load test
 

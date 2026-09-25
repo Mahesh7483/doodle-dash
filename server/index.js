@@ -94,6 +94,24 @@ function createServer(options = {}) {
     const code = made.room.code;
     res.status(201).json({ code, url: `${origin(req)}/r/${code}` });
   });
+  // Numbers since the last restart (no personal data): games, players, "did you have fun?" votes.
+  app.get('/stats', (req, res) => {
+    const s = manager.stats;
+    const votes = s.fun[1] + s.fun[2] + s.fun[3];
+    let online = 0;
+    for (const room of manager.rooms.values()) online += room.humansConnected().length + room.crowd();
+    res.set('Cache-Control', 'no-store').json({
+      since: new Date(s.since).toISOString(),
+      roomsOpen: manager.rooms.size,
+      peopleOnline: online,
+      gamesStarted: s.gamesStarted,
+      gamesFinished: s.gamesFinished,
+      chaosGames: s.chaosGames,
+      playersInFinishedGames: s.players,
+      fun: { votes, loved: s.fun[3], liked: s.fun[2], meh: s.fun[1], lovedOrLikedPercent: votes ? Math.round(((s.fun[3] + s.fun[2]) / votes) * 100) : null },
+    });
+  });
+
   // Opening /new makes a fresh room and goes straight to it.
   app.get('/new', (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -362,6 +380,12 @@ function createServer(options = {}) {
       const cur = current();
       if (!cur) return reply(ack, { error: 'Not in a room.' });
       reply(ack, cur.room.like(cur.pid, index, on !== false));
+    });
+
+    socket.on('feedback', (score, ack) => {
+      const cur = current();
+      if (!cur) return reply(ack, { error: 'Not in a room.' });
+      reply(ack, cur.room.feedback(cur.pid, score));
     });
 
     socket.on('playAgain', (ack) => {

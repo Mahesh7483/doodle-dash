@@ -172,6 +172,16 @@
           <ul id="lobby-players" class="lobby-players"></ul>
           <p id="crowd-line" class="crowd-line" hidden></p>
         </div>
+
+        <div class="card lobby-chat-card">
+          <div class="card-head"><h2>Chat</h2></div>
+          <ul id="lobby-chat-log" class="chat-log lobby-chat-log" aria-live="polite"></ul>
+          <div id="lobby-react" class="lobby-react" role="group" aria-label="Send a reaction"></div>
+          <form id="lobby-chat-form" class="chat-form lobby-chat-form" autocomplete="off">
+            <input id="lobby-chat-input" class="input chat-input" type="text" maxlength="100" autocomplete="off" enterkeyhint="send" placeholder="Say hi while you wait…" aria-label="Lobby chat">
+            <button class="btn btn-primary chat-send" type="submit" aria-label="Send"><svg class="icon"><use href="#i-send"/></svg></button>
+          </form>
+        </div>
         </div>
         <div class="lobby-col">
 
@@ -299,6 +309,14 @@
         <ol id="rest-list" class="rest-list"></ol>
         <div class="podium-actions">
           <button id="to-gallery-btn" class="btn btn-primary btn-lg btn-block" type="button"><svg class="icon"><use href="#i-image"/></svg> Open the gallery</button>
+          <div id="fun-card" class="fun-card" hidden>
+            <p class="fun-q">Did you have fun?</p>
+            <div class="fun-btns">
+              <button type="button" data-fun="3" aria-label="Loved it">😍</button>
+              <button type="button" data-fun="2" aria-label="It was fun">🙂</button>
+              <button type="button" data-fun="1" aria-label="Meh">😐</button>
+            </div>
+          </div>
           <button id="share-results-btn" class="btn btn-secondary btn-block" type="button"><svg class="icon"><use href="#i-share"/></svg> Share the results</button>
           <button class="btn btn-secondary btn-block" type="button" data-play-again>Play again</button>
           <p class="start-hint" data-wait-host hidden></p>

@@ -438,6 +438,13 @@ test('solo: one phone plays a whole game against a bot', async ({ browser }) => 
   await expect(page.locator('.frame-by', { hasText: 'Doodlebot' })).toHaveCount(2);
   await page.waitForTimeout(5000);
   await shot(page, 'phone-15-gallery-with-bot');
+  // Back on the podium: "Did you have fun?" counts in /stats.
+  await page.locator('#gallery-back').click();
+  await page.locator('#fun-card [data-fun="3"]').click();
+  await expect(page.locator('#fun-card .fun-q')).toContainText('Thanks');
+  const stats = await (await page.request.get('/stats')).json();
+  expect(stats.gamesFinished).toBeGreaterThanOrEqual(1);
+  expect(stats.fun.loved).toBeGreaterThanOrEqual(1);
   expect(errors).toEqual([]);
   await ctx.close();
 });
@@ -876,6 +883,10 @@ test('quick wins: a random name, tap the code to copy, share results, the host r
   await guest.locator('#name-input').fill('Troll');
   await guest.locator('#invite-join-btn').click();
   await expect(guest.locator('#screen-lobby')).toBeVisible();
+  // Chat in the lobby while waiting.
+  await guest.locator('#lobby-chat-input').fill('hi from the lobby!');
+  await guest.locator('#lobby-chat-input').press('Enter');
+  await expect(host.locator('#lobby-chat-log')).toContainText('hi from the lobby!');
   await host.locator('#add-bot-btn').click();
   await host.locator('#start-btn').click();
   await expect(host.locator('#screen-game')).toBeVisible();

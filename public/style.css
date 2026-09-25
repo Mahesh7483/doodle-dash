@@ -3956,3 +3956,88 @@ body[data-screen='game'] .toast.show {
     scroll-behavior: auto !important;
   }
 }
+
+
+/* ================================================================== LOBBY CHAT & FUN VOTE */
+
+.lobby-chat-card {
+  display: grid;
+  gap: 8px;
+}
+
+.lobby-chat-log {
+  max-height: 180px;
+  min-height: 64px;
+  overflow-y: auto;
+  margin: 0;
+}
+
+.lobby-chat-log:empty::before {
+  content: 'No messages yet. Say hi!';
+  display: block;
+  padding: 10px 2px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.lobby-react {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.lobby-react button {
+  display: grid;
+  place-items: center;
+  height: 42px;
+  padding: 4px;
+  border: 2px solid color-mix(in srgb, var(--line) 25%, transparent);
+  border-radius: 12px;
+  background: var(--surface-2);
+  touch-action: manipulation;
+}
+
+.lobby-react button:active {
+  transform: scale(1.12);
+}
+
+.lobby-react svg {
+  width: 28px;
+  height: 28px;
+}
+
+.fun-card {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 10px;
+  border: 2.5px dashed color-mix(in srgb, var(--line) 35%, transparent);
+  border-radius: 16px;
+}
+
+.fun-q {
+  margin: 0;
+  font-weight: 700;
+}
+
+.fun-btns {
+  display: flex;
+  gap: 10px;
+}
+
+.fun-btns button {
+  width: 52px;
+  height: 52px;
+  border: 2.5px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  font-size: 1.6rem;
+  line-height: 1;
+  box-shadow: var(--shadow-sm);
+  touch-action: manipulation;
+}
+
+.fun-btns button.on {
+  background: var(--yellow);
+  transform: translateY(-2px);
+}
