@@ -75,7 +75,10 @@
           </div>
           <label class="field">
             <span class="field-label">Your name</span>
-            <input id="name-input" class="input" type="text" maxlength="16" autocomplete="nickname" autocapitalize="words" enterkeyhint="go" placeholder="e.g. Ana" spellcheck="false">
+            <span class="name-row">
+              <input id="name-input" class="input" type="text" maxlength="16" autocomplete="nickname" autocapitalize="words" enterkeyhint="go" placeholder="e.g. Ana" spellcheck="false">
+              <button id="dice-btn" class="dice-btn" type="button" aria-label="Pick a fun name" title="Pick a fun name">🎲</button>
+            </span>
           </label>
           <div id="home-create" class="home-actions">
             <button id="create-btn" class="btn btn-primary btn-lg btn-block" type="button">Create a room</button>
@@ -132,13 +135,13 @@
           <div class="code-card-top">
             <div>
               <div class="kicker">Room code</div>
-              <div id="lobby-code" class="room-code" aria-live="polite"></div>
+              <div id="lobby-code" class="room-code" role="button" tabindex="0" aria-label="Room code. Tap to copy the invite link." title="Tap to copy the invite link"></div>
             </div>
             <button id="qr-btn" class="qr-frame" type="button" aria-label="Show QR code bigger">
               <img id="lobby-qr" alt="QR code to join this room" width="120" height="120">
             </button>
           </div>
-          <p class="code-hint">Friends scan the QR code or open the link to join in one tap.</p>
+          <p class="code-hint">Friends scan the QR code or open the link to join in one tap. Tap the code to copy the link.</p>
           <div class="share-row">
             <button id="share-btn" class="btn btn-secondary" type="button"><svg class="icon"><use href="#i-share"/></svg> Share invite</button>
             <button id="copy-btn" class="btn btn-secondary" type="button"><svg class="icon"><use href="#i-copy"/></svg> Copy link</button>
@@ -226,7 +229,8 @@
         </div>
         <div class="word-area">
           <div id="word-label" class="word-label"></div>
-          <div id="word-display" class="word-display" aria-live="polite"></div>
+          <div id="word-display" class="word-display" aria-hidden="true"></div>
+          <span id="word-sr" class="sr-only" aria-live="polite"></span>
         </div>
         <div class="top-actions">
           <button class="icon-btn" type="button" data-mute aria-label="Toggle sound"><svg class="icon"><use href="#i-sound"/></svg></button>
@@ -295,6 +299,7 @@
         <ol id="rest-list" class="rest-list"></ol>
         <div class="podium-actions">
           <button id="to-gallery-btn" class="btn btn-primary btn-lg btn-block" type="button"><svg class="icon"><use href="#i-image"/></svg> Open the gallery</button>
+          <button id="share-results-btn" class="btn btn-secondary btn-block" type="button"><svg class="icon"><use href="#i-share"/></svg> Share the results</button>
           <button class="btn btn-secondary btn-block" type="button" data-play-again>Play again</button>
           <p class="start-hint" data-wait-host hidden></p>
           <button class="btn btn-link" type="button" data-leave>Leave room</button>

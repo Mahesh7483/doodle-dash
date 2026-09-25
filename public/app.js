@@ -173,10 +173,11 @@ socket.on('connect', async () => {
       enterRoom(res.code);
       return;
     }
-    if (wasIn) toast(res.error || 'Could not rejoin the room.');
-    forgetRoom();
     // Seat expired: offer to join that room again. Room closed (e.g. server restart): start fresh.
     const closed = /closed/.test(res.error || '');
+    if (closed) toast('The game server restarted, so that room is gone. Start a new one in a tap!', 6000);
+    else if (wasIn) toast(res.error || 'Could not rejoin the room.');
+    forgetRoom();
     showHome(S.invite || (closed ? null : code));
     return;
   }
@@ -451,6 +452,59 @@ $('#link-share').addEventListener('click', async () => {
 $('#link-copy').addEventListener('click', () => linkRoom && copyText(linkRoom.url));
 $('#link-join').addEventListener('click', () => linkRoom && joinRoom(linkRoom.code));
 $('#audience-btn').addEventListener('click', joinAudience);
+
+// A fun random name, for people who'd rather not type.
+const NAME_WORDS = [
+  ['Sneaky', 'Happy', 'Sleepy', 'Brave', 'Fuzzy', 'Jolly', 'Zippy', 'Wobbly', 'Mighty', 'Sparkly', 'Cosmic', 'Giggly'],
+  ['Panda', 'Otter', 'Llama', 'Tiger', 'Koala', 'Dragon', 'Penguin', 'Fox', 'Sloth', 'Walrus', 'Moose', 'Gecko'],
+];
+$('#dice-btn').addEventListener('click', () => {
+  const pick = (a) => a[Math.floor(Math.random() * a.length)];
+  let name = '';
+  for (let i = 0; i < 5 && (!name || name === $('#name-input').value); i++) name = `${pick(NAME_WORDS[0])} ${pick(NAME_WORDS[1])}`;
+  $('#name-input').value = name.slice(0, 16);
+  setHomeError(null);
+  sfx.click();
+});
+
+// Tap the room code to copy the invite link.
+$('#lobby-code').addEventListener('click', () => S.code && copyText(shareUrl()));
+$('#lobby-code').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    if (S.code) copyText(shareUrl());
+  }
+});
+
+// Share the results after a game.
+$('#share-results-btn').addEventListener('click', async () => {
+  const v = S.view;
+  if (!v) return;
+  const sorted = [...v.players].sort((a, b) => b.score - a.score);
+  const top = sorted[0];
+  if (!top) return;
+  const tied = sorted.filter((p) => p.score === top.score).map((p) => p.name);
+  const headline = tied.length > 1 ? `🤝 ${tied.join(' and ')} tied in our Doodle Dash game with ${top.score} pts!` : `🏆 ${top.name} won our Doodle Dash game with ${top.score} pts!`;
+  const text = `${headline} 🎨 Play: ${location.origin}`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: 'Doodle Dash', text });
+      return;
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+    }
+  }
+  copyText(text, 'Results copied — paste them anywhere!');
+});
+
+// The host can remove a player during the game too (tap the ✕ on their chip).
+$('#player-list').addEventListener('click', async (e) => {
+  const k = e.target.closest('[data-kick]');
+  if (!k || !isHost()) return;
+  if (!confirm(`Remove ${k.dataset.name} from the game? They won't be able to rejoin.`)) return;
+  const res = await emit('kick', k.dataset.kick);
+  if (res.error) toast(res.error);
+});
 $('#invite-other-btn').addEventListener('click', () => showHome(null));
 $('#name-input').addEventListener('keydown', (e) => {
   if (e.key !== 'Enter') return;
@@ -766,10 +820,10 @@ $('#last-gallery-btn').addEventListener('click', () => {
   window.scrollTo(0, 0);
 });
 
-async function copyText(text) {
+async function copyText(text, message = 'Link copied — paste it to your friends!') {
   try {
     await navigator.clipboard.writeText(text);
-    toast('Link copied — paste it to your friends!');
+    toast(message);
   } catch (_) {
     const ta = document.createElement('textarea');
     ta.value = text;
@@ -783,7 +837,7 @@ async function copyText(text) {
       ok = document.execCommand('copy');
     } catch (_) { /* ignore */ }
     ta.remove();
-    toast(ok ? 'Link copied!' : text);
+    toast(ok ? message : text);
   }
 }
 
@@ -832,6 +886,7 @@ function renderGame() {
     disp.innerHTML = t && t.word ? wordHtml(t.word) : '<span class="word-note">Turn skipped</span>';
   }
   fitWord();
+  describeWord(v, t, amDrawer);
 
   renderPlayers();
   renderOverlay();
@@ -881,6 +936,19 @@ function renderGame() {
   if (privateChat) input.placeholder = 'Chat with players who guessed…';
   else if (drawing) input.placeholder = 'Type your guess…';
   else input.placeholder = 'Say something…';
+}
+
+// The word area is decorative (letter tiles and blanks); screen readers get this instead.
+function describeWord(v, t, amDrawer) {
+  let text = $('#word-display').textContent.trim();
+  if (v.phase === 'drawing' && t && t.word) text = amDrawer ? `Draw this: ${t.word}` : `You got it: ${t.word}`;
+  else if (v.phase === 'drawing' && t && t.mask) {
+    const lens = maskLengths(t.mask);
+    const shown = t.mask.filter((ch) => ch && /\p{L}/u.test(ch));
+    text = `Guess the word: ${lens.join(' and ')} letters.${shown.length ? ` Shown: ${shown.join(', ')}.` : ''}`;
+  } else if (v.phase === 'reveal' && t && t.word) text = `The word was ${t.word}`;
+  const sr = $('#word-sr');
+  if (sr.textContent !== text) sr.textContent = text;
 }
 
 function wordHtml(word) {
@@ -940,7 +1008,8 @@ function renderPlayers() {
       if (isDrawer) status = '<span class="pl-status" title="Drawing"><svg class="icon icon-xs"><use href="#i-brush"/></svg></span>';
       else if (p.guessed) status = '<span class="pl-status ok" title="Guessed it"><svg class="icon icon-xs"><use href="#i-check"/></svg></span>';
       const gain = pts && pts[p.id] ? ` <span class="pl-gain">+${pts[p.id]}</span>` : '';
-      return `<li class="${cls}" data-pid="${esc(p.id)}">
+      const kick = isHost() && p.id !== v.me ? `<button type="button" class="pl-kick" data-kick="${esc(p.id)}" data-name="${esc(p.name)}" aria-label="Remove ${esc(p.name)}"><svg class="icon icon-xs"><use href="#i-close"/></svg></button>` : '';
+      return `<li class="${cls}${kick ? ' has-kick' : ''}" data-pid="${esc(p.id)}">${kick}
         <span class="pl-rank">#${ranks.get(p.id)}</span>
         <span class="pl-av">${avatar(p)}${status}</span>
         <span class="pl-main"><span class="pl-name">${esc(p.name)}${p.id === v.me ? ' <span class="you">(you)</span>' : ''}</span>

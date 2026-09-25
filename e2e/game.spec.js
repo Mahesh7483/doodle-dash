@@ -853,3 +853,50 @@ test('first-game tips show once; the host gets their usual settings in the next 
   expect(errors).toEqual([]);
   await ctx.close();
 });
+
+test('quick wins: a random name, tap the code to copy, share results, the host removes a player mid-game', async ({ browser }) => {
+  const deskCtx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const guestCtx = await browser.newContext({ ...phoneDevice });
+  const host = await deskCtx.newPage();
+  const errors = [];
+  host.on('pageerror', (e) => errors.push(e.message));
+  await host.goto('/');
+  await host.locator('#dice-btn').click();
+  const name = await host.locator('#name-input').inputValue();
+  expect(name).toMatch(/^\w+ \w+$/);
+  await host.locator('#create-btn').click();
+  await expect(host.locator('#lobby-players')).toContainText(name);
+  await host.locator('#lobby-code').click();
+  await expect(host.locator('#toast')).toContainText('copied');
+  const code = (await host.locator('#lobby-code').textContent()) || '';
+
+  const guest = await guestCtx.newPage();
+  guest.on('pageerror', (e) => errors.push(e.message));
+  await guest.goto(`/r/${code}`);
+  await guest.locator('#name-input').fill('Troll');
+  await guest.locator('#invite-join-btn').click();
+  await expect(guest.locator('#screen-lobby')).toBeVisible();
+  await host.locator('#add-bot-btn').click();
+  await host.locator('#start-btn').click();
+  await expect(host.locator('#screen-game')).toBeVisible();
+  await expect(guest.locator('#screen-game')).toBeVisible();
+  // Screen readers get a description of the word area.
+  await expect(guest.locator('#word-sr')).not.toBeEmpty();
+
+  // Only the host sees remove buttons, and only on other players.
+  await expect(guest.locator('#player-list .pl-kick')).toHaveCount(0);
+  await expect(host.locator('#player-list .pl-kick')).toHaveCount(2);
+  host.on('dialog', (d) => d.accept());
+  await host.locator('#player-list li', { hasText: 'Troll' }).locator('.pl-kick').click();
+  await expect(guest.locator('#screen-home')).toBeVisible();
+  await expect(guest.locator('#toast')).toContainText('removed you');
+  await expect(host.locator('#player-list')).not.toContainText('Troll');
+  await expect(host.locator('#screen-game')).toBeVisible(); // host + bot carry on
+  await shot(host, 'desktop-19-remove-mid-game');
+
+  // Share results appears on the podium (checked by its presence; the game itself is covered elsewhere).
+  await expect(host.locator('#share-results-btn')).toHaveCount(1);
+  expect(errors).toEqual([]);
+  await deskCtx.close();
+  await guestCtx.close();
+});

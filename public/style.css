@@ -3848,3 +3848,111 @@ body[data-screen='game'] .toast.show {
     animation: none;
   }
 }
+
+
+/* ================================================================== COMFORT & ACCESS */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Random name */
+.name-row {
+  position: relative;
+  display: block;
+}
+
+.name-row .input {
+  padding-right: 58px;
+}
+
+.dice-btn {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 42px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  transform: translateY(-50%);
+  transition: transform 0.2s ease;
+  touch-action: manipulation;
+}
+
+.dice-btn:hover {
+  background: var(--surface-2);
+}
+
+.dice-btn:active {
+  transform: translateY(-50%) rotate(90deg) scale(0.9);
+}
+
+/* Tap the code to copy */
+#lobby-code {
+  cursor: pointer;
+  border-radius: 14px;
+}
+
+#lobby-code:hover span {
+  filter: brightness(1.05);
+}
+
+/* Host: remove a player during the game */
+.pl.has-kick {
+  padding-right: 34px;
+}
+
+.pl-kick {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  margin-top: -11px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--muted);
+  touch-action: manipulation;
+}
+
+.pl-kick:hover {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.pl-kick .icon {
+  width: 11px;
+  height: 11px;
+  stroke-width: 3;
+}
+
+/* Honour "reduce motion" everywhere (confetti and bursts already skip themselves). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
